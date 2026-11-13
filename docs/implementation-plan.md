@@ -12,6 +12,7 @@ Build one complete, isolated flow for PostgreSQL and S3 before adding more servi
 
 - Define project roles, capability states, operation states, error categories, and stable resource naming rules.
 - Specify API request and response schemas, including how a repeated `PUT` reuses an operation and how deletion is confirmed.
+- Scaffold the [chosen stacks](technology-decisions.md): Python with FastAPI, Pydantic, SQLAlchemy, and Alembic for the API and worker; React with TypeScript, Mantine, Vite, React Router, TanStack Query, and `oidc-client-ts` for the portal. Pin compatible versions in application lockfiles.
 - Use Ansible for the local VM and subsequent application deployment. The development VM is specified with 16 vCPUs and 32 GiB RAM; define separate inventories for later environments.
 - Set up the application repository structure, local single-host service deployment, configuration, secrets handling, and versioned metadata migrations.
 - Provision separate metadata and application PostgreSQL instances and establish private worker administration access.
@@ -29,8 +30,8 @@ Build one complete, isolated flow for PostgreSQL and S3 before adding more servi
 
 **Work**
 
-- Implement the React project list and project detail flow, project creation, membership checks, and capability status views.
-- Implement the Python API with transactional writes of desired capability state and provisioning jobs.
+- Implement the React and Mantine project list and detail flow, forms, membership checks, and capability status views. Use TanStack Query to refresh asynchronous operation status.
+- Implement the FastAPI service with Pydantic contracts and SQLAlchemy transactions for desired capability state and provisioning jobs; manage metadata schema changes with Alembic.
 - Implement leased job claiming, retries, observable failure reasons, and reconciliation after worker interruption.
 - Add audit events that record actors and resource references without secret values.
 

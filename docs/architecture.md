@@ -4,6 +4,8 @@
 
 The development environment is provisioned through [Ansible on a local VM](development-vm.md). Application deployment should also use Ansible as the project moves from this proposal to runnable services.
 
+The API and worker will be implemented in Python; the portal will use React, TypeScript, and Mantine. The supporting libraries and their responsibilities are recorded in [technology decisions](technology-decisions.md).
+
 ## Purpose and scope
 
 Storage Lab is a standalone, single-host lab that would provide project-scoped databases, object storage, and specialized data services. The Developer Platform supplies Keycloak as the identity provider; the lab owns project membership, resource lifecycle, workload credentials, and data-service access. Applications and external clients connect to public lab data endpoints. Operators use private administrative endpoints.
@@ -14,8 +16,8 @@ The first delivery slice comprises the React portal, Python API, provisioning wo
 
 | Component | Responsibility | Access boundary |
 | --- | --- | --- |
-| React portal | Project management, capability selection, status, connection details, credential controls, and project data views | Public HTTPS; users authenticate through Keycloak |
-| Python API (FastAPI proposed) | Validate tokens and project roles; store projects, desired state, jobs, and audit events; return project-scoped information | Public HTTPS for authorized portal requests |
+| React portal (TypeScript and Mantine) | Project management, capability selection, status, connection details, credential controls, and project data views | Public HTTPS; users authenticate through Keycloak |
+| Python API (FastAPI) | Validate tokens and project roles; store projects, desired state, jobs, and audit events; return project-scoped information | Public HTTPS for authorized portal requests |
 | Metadata PostgreSQL | Projects, memberships, capability state, resource references, jobs, and audit records | Internal only; separate API, worker, and operator roles |
 | Python provisioning worker | Reserve jobs, reconcile actual resources with desired state, configure access, and verify results | Internal metadata and private service administration access |
 | Application PostgreSQL | Host project databases | Public TLS data port for permitted project roles; private administration access |

@@ -4,6 +4,14 @@
 
 Storage Lab is a proposed single-host platform for project-scoped data services. Project members would create projects, enable capabilities, and track provisioning in a React portal. A Python API would manage projects, authorization, and desired state, while a separate worker would provision resources. Applications on the Developer Platform and external clients would connect to the lab's public data endpoints with credentials issued for their workloads.
 
+## Technology choices
+
+- **API and worker:** Python, with FastAPI for the HTTP API, Pydantic for API contracts, SQLAlchemy for metadata persistence, and Alembic for schema migrations.
+- **Portal:** React with TypeScript and Mantine. Vite builds the application; React Router handles navigation; TanStack Query manages API data and operation-status refreshes; `oidc-client-ts` handles browser OIDC with PKCE. Mantine supplies components, forms, and notifications.
+- **Deployment:** Ansible provisions the development VM and prepares the guest. It will also deploy the API, worker, and portal when those applications exist.
+
+The [technology decisions](docs/technology-decisions.md) explain each library's role. No application code has been added yet.
+
 ## Proposed architecture
 
 ```mermaid
@@ -52,6 +60,7 @@ Provisioning is intended to be idempotent: retrying a request or resuming after 
 ## Documentation
 
 - [Project documentation](docs/architecture.md) covers components, access boundaries, provisioning, APIs, and operations.
+- [Technology decisions](docs/technology-decisions.md) records the chosen Python and React stacks.
 - [Implementation plan](docs/implementation-plan.md) defines delivery phases and acceptance criteria.
 - [Local development VM](docs/development-vm.md) explains the Ansible-managed Ubuntu VM and guest setup.
 - [German source concept](README_DE.md) records the original proposal.
