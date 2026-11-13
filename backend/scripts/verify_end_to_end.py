@@ -1,4 +1,4 @@
-"""Exercise API, worker, PostgreSQL, and S3 in the development VM.
+"""Exercise API, worker, PostgreSQL, S3, and CouchDB in the development VM.
 
 This script overrides only the external OIDC identity dependency because no
 Developer Platform Keycloak configuration is shipped with the repository.
@@ -7,6 +7,7 @@ Developer Platform Keycloak configuration is shipped with the repository.
 import time
 from uuid import uuid4
 
+import httpx
 import psycopg
 from psycopg import sql
 from fastapi.testclient import TestClient
@@ -39,7 +40,7 @@ def main() -> None:
                 project = client.post("/projects", json={"name": name}).json()
                 assert "id" in project, project
                 projects.append((project["id"], name, owner))
-                for kind in ("postgresql", "object-storage"):
+                for kind in ("postgresql", "object-storage", "documents"):
                     operation = client.put(f"/projects/{project['id']}/capabilities/{kind}").json()
                     assert "id" in operation, operation
                     wait(client, operation["id"])
@@ -53,6 +54,61 @@ def main() -> None:
             assert client.get(f"/projects/{first}/objects").json() == [{"key": "hello.txt", "size": 5}]
             download = client.get(f"/projects/{first}/objects/download", params={"key": "hello.txt"})
             assert download.content == b"hello"
+
+            created_document = client.put(
+                f"/projects/{first}/documents/verification", json={"value": "first"}
+            )
+            assert created_document.status_code == 200, created_document.text
+            document = client.get(f"/projects/{first}/documents/verification")
+            assert document.status_code == 200 and document.json()["value"] == "first", document.text
+            assert client.get(f"/projects/{first}/documents").json()["items"][0]["id"] == "verification"
+            revised = client.put(
+                f"/projects/{first}/documents/verification",
+                json={"_rev": document.json()["_rev"], "value": "updated"},
+            )
+            assert revised.status_code == 200, revised.text
+            conflict = client.put(
+                f"/projects/{first}/documents/verification",
+                json={"_rev": document.json()["_rev"], "value": "stale"},
+            )
+            assert conflict.status_code == 409, conflict.text
+            active["principal"] = bob
+            assert client.get(f"/projects/{first}/documents").status_code == 404
+            active["principal"] = alice
+            added_viewer = client.post(
+                f"/projects/{first}/members",
+                json={"issuer": bob.issuer, "subject": bob.subject, "role": "viewer"},
+            )
+            assert added_viewer.status_code == 200, added_viewer.text
+            active["principal"] = bob
+            assert client.get(f"/projects/{first}/documents/verification").json()["value"] == "updated"
+            assert client.put(
+                f"/projects/{first}/documents/verification", json={"value": "forbidden"}
+            ).status_code == 404
+            active["principal"] = alice
+            deleted_document = client.delete(
+                f"/projects/{first}/documents/verification", params={"rev": revised.json()["rev"]}
+            )
+            assert deleted_document.status_code == 200, deleted_document.text
+            assert client.get(f"/projects/{first}/documents/verification").status_code == 404
+
+            issued_document = client.post(
+                f"/projects/{first}/capabilities/documents/credentials",
+                json={"label": "verification CouchDB"},
+            ).json()
+            assert "secret" in issued_document, issued_document
+            wait(client, issued_document["operation"]["id"])
+            doc_auth = (issued_document["credential"]["username"], issued_document["secret"])
+            direct = httpx.get(f"http://127.0.0.1/couchdb/sl_{first}", auth=doc_auth)
+            assert direct.status_code == 200, direct.text
+            denied = httpx.get(f"http://127.0.0.1/couchdb/sl_{second}", auth=doc_auth)
+            assert denied.status_code in {401, 403}, denied.text
+            revoked_document = client.delete(
+                f"/projects/{first}/capabilities/documents/credentials/{issued_document['credential']['id']}"
+            ).json()
+            wait(client, revoked_document["id"])
+            denied_after_revoke = httpx.get(f"http://127.0.0.1/couchdb/sl_{first}", auth=doc_auth)
+            assert denied_after_revoke.status_code in {401, 403}, denied_after_revoke.text
 
             issued = client.post(
                 f"/projects/{first}/capabilities/postgresql/credentials",
@@ -94,11 +150,11 @@ def main() -> None:
                 raise AssertionError("Cross-project PostgreSQL access succeeded")
             except psycopg.OperationalError:
                 pass
-            print("API and worker: two projects provisioned; runtime/migration roles and object isolation verified")
+            print("API and worker: two projects provisioned; PostgreSQL, S3, and CouchDB isolation verified")
         finally:
             for project_id, name, owner in projects:
                 active["principal"] = owner
-                for kind in ("object-storage", "postgresql"):
+                for kind in ("documents", "object-storage", "postgresql"):
                     response = client.request(
                         "DELETE", f"/projects/{project_id}/capabilities/{kind}",
                         json={"confirm_name": name},

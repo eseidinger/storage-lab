@@ -1,6 +1,6 @@
 [Unit]
 Description=Storage Lab provisioning worker
-After=network-online.target postgresql.service storage-lab-rustfs.service
+After=network-online.target postgresql.service storage-lab-rustfs.service storage-lab-couchdb.service
 Wants=network-online.target
 
 [Service]

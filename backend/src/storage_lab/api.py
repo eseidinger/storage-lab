@@ -1,9 +1,12 @@
 from uuid import uuid4
 from secrets import token_urlsafe
+from typing import Any
+from urllib.parse import quote
 
 import boto3
+import httpx
 from botocore.config import Config
-from fastapi import File, UploadFile
+from fastapi import Body, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from cryptography.fernet import Fernet
@@ -30,7 +33,7 @@ from .settings import get_settings
 
 
 app = FastAPI(title="Storage Lab API", version="0.1.0")
-SUPPORTED_CAPABILITIES = {"postgresql", "object-storage"}
+SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents"}
 
 
 def membership(session: Session, project_id: str, principal: Principal, admin: bool = False) -> Membership:
@@ -105,6 +108,35 @@ def browser_client(session: Session, project_id: str, principal: Principal):
         config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
     return client, capability.resource_name
+
+
+def document_browser_client(session: Session, project_id: str, principal: Principal) -> tuple[httpx.Client, str]:
+    membership(session, project_id, principal)
+    capability = session.scalar(
+        select(Capability).where(Capability.project_id == project_id, Capability.kind == "documents")
+    )
+    if capability is None or capability.state != "ready" or not capability.browser_credential:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documents are not ready")
+    settings = get_settings()
+    if not settings.couchdb_endpoint_url:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "CouchDB is not configured")
+    sealed = capability.browser_credential
+    secret = Fernet(settings.credential_key).decrypt(sealed["encrypted_secret"].encode()).decode()
+    return httpx.Client(base_url=settings.couchdb_endpoint_url.rstrip("/"), auth=(sealed["username"], secret), timeout=15), capability.resource_name
+
+
+def document_response(response: httpx.Response) -> dict[str, Any]:
+    if response.status_code in {401, 403, 404, 409}:
+        raise HTTPException(response.status_code, "Document request was denied or conflicted")
+    if response.is_error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Document service request failed")
+    return response.json()
+
+
+def document_id(value: str) -> str:
+    if not value or len(value) > 200 or value.startswith("_") or "/" in value or "\x00" in value:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid document ID")
+    return quote(value, safe="")
 
 
 @app.get("/health")
@@ -255,7 +287,7 @@ def enable_capability(
     else:
         capability.state = "pending"
         capability.error = None
-    if kind == "object-storage" and not capability.browser_credential:
+    if kind in {"object-storage", "documents"} and not capability.browser_credential:
         if not get_settings().credential_key:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Credential encryption is not configured")
         secret = token_urlsafe(36)
@@ -281,6 +313,75 @@ def list_objects(
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
         objects.extend({"key": item["Key"], "size": item["Size"]} for item in page.get("Contents", []))
     return objects
+
+
+@app.get("/projects/{project_id}/documents")
+def list_documents(
+    project_id: str,
+    skip: int = Query(0, ge=0, le=100000),
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    client, dbname = document_browser_client(session, project_id, principal)
+    with client:
+        result = document_response(client.get(f"/{dbname}/_all_docs", params={"skip": skip, "limit": 51}))
+    rows = result.get("rows", [])
+    return {
+        "items": [{"id": row["id"], "rev": row["value"]["rev"]} for row in rows[:50] if not row["id"].startswith("_design/")],
+        "next_offset": skip + 50 if len(rows) > 50 else None,
+    }
+
+
+@app.get("/projects/{project_id}/documents/{doc_id}")
+def get_document(
+    project_id: str,
+    doc_id: str,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    encoded = document_id(doc_id)
+    client, dbname = document_browser_client(session, project_id, principal)
+    with client:
+        return document_response(client.get(f"/{dbname}/{encoded}"))
+
+
+@app.put("/projects/{project_id}/documents/{doc_id}")
+def put_document(
+    project_id: str,
+    doc_id: str,
+    body: dict[str, Any] = Body(...),
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    membership(session, project_id, principal, admin=True)
+    encoded = document_id(doc_id)
+    if body.get("_id") is not None and body["_id"] != doc_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Document ID does not match the URL")
+    document = {**body, "_id": doc_id}
+    client, dbname = document_browser_client(session, project_id, principal)
+    with client:
+        result = document_response(client.put(f"/{dbname}/{encoded}", json=document))
+    add_audit(session, project_id, principal.identity, "document.put", doc_id)
+    session.commit()
+    return result
+
+
+@app.delete("/projects/{project_id}/documents/{doc_id}")
+def delete_document(
+    project_id: str,
+    doc_id: str,
+    rev: str = Query(..., min_length=1),
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    membership(session, project_id, principal, admin=True)
+    encoded = document_id(doc_id)
+    client, dbname = document_browser_client(session, project_id, principal)
+    with client:
+        result = document_response(client.delete(f"/{dbname}/{encoded}", params={"rev": rev}))
+    add_audit(session, project_id, principal.identity, "document.delete", doc_id)
+    session.commit()
+    return result
 
 
 @app.post("/projects/{project_id}/objects", status_code=201)

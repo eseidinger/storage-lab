@@ -1,0 +1,15 @@
+[Unit]
+Description=Storage Lab CouchDB
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/podman start -a storage-lab-couchdb
+ExecStop=/usr/bin/podman stop -t 10 storage-lab-couchdb
+Restart=on-failure
+RestartSec=3
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_admin_access_key: str = ""
     s3_admin_secret_key: str = ""
+    couchdb_admin_url: str = ""
+    couchdb_endpoint_url: str = ""
+    couchdb_public_url: str = ""
+    couchdb_admin_user: str = ""
+    couchdb_admin_password: str = ""
     worker_poll_seconds: float = 2.0
 
 

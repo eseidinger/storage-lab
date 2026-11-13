@@ -12,6 +12,7 @@
     app_pg_password: "{{ lookup('password', secret_dir ~ '/app-pg-password length=32 chars=ascii_letters,digits') }}"
     rustfs_access_key: "{{ lookup('password', secret_dir ~ '/rustfs-access-key length=24 chars=ascii_letters,digits') }}"
     rustfs_secret_key: "{{ lookup('password', secret_dir ~ '/rustfs-secret-key length=48 chars=ascii_letters,digits') }}"
+    couchdb_admin_password: "{{ lookup('password', secret_dir ~ '/couchdb-admin-password length=40 chars=ascii_letters,digits') }}"
     keycloak_admin_password: "{{ lookup('password', secret_dir ~ '/keycloak-admin-password length=32 chars=ascii_letters,digits') }}"
     keycloak_user_password: "{{ lookup('password', secret_dir ~ '/keycloak-user-password length=24 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
@@ -349,6 +350,60 @@
         dest: /etc/systemd/system/storage-lab-rustfs.service
         mode: '0644'
 
+    - name: Install CouchDB single-node configuration
+      ansible.builtin.copy:
+        src: ../files/couchdb-single-node.ini
+        dest: /opt/storage-lab/couchdb-single-node.ini
+        owner: '5984'
+        group: '5984'
+        mode: '0644'
+
+    - name: Check CouchDB persistent volume
+      ansible.builtin.command:
+        argv: [podman, volume, exists, couchdb-data]
+      register: couchdb_volume
+      failed_when: false
+      changed_when: false
+
+    - name: Create CouchDB persistent volume
+      ansible.builtin.command:
+        argv: [podman, volume, create, couchdb-data]
+      when: couchdb_volume.rc != 0
+
+    - name: Check CouchDB container
+      ansible.builtin.command:
+        argv: [podman, container, exists, storage-lab-couchdb]
+      register: couchdb_container
+      failed_when: false
+      changed_when: false
+
+    - name: Create private CouchDB container
+      ansible.builtin.command:
+        argv:
+          - podman
+          - create
+          - --name
+          - storage-lab-couchdb
+          - -p
+          - 127.0.0.1:5984:5984
+          - -v
+          - couchdb-data:/opt/couchdb/data
+          - -v
+          - /opt/storage-lab/couchdb-single-node.ini:/opt/couchdb/etc/local.d/10-storage-lab.ini:ro
+          - -e
+          - COUCHDB_USER=admin
+          - -e
+          - "COUCHDB_PASSWORD={{ couchdb_admin_password }}"
+          - docker.io/apache/couchdb@sha256:691c86227d66e9d6b4dd5b045b41f674c145a1cc70d05cfb1f1c804ad7ff4563
+      when: couchdb_container.rc != 0
+      no_log: true
+
+    - name: Install CouchDB systemd unit
+      ansible.builtin.copy:
+        src: ../files/storage-lab-couchdb.service
+        dest: /etc/systemd/system/storage-lab-couchdb.service
+        mode: '0644'
+
     - name: Create local Keycloak realm import directory
       ansible.builtin.file:
         path: /opt/storage-lab/keycloak-import
@@ -460,7 +515,19 @@
         state: started
         enabled: true
         daemon_reload: true
-      loop: [storage-lab-rustfs, storage-lab-api, storage-lab-worker]
+      loop: [storage-lab-rustfs, storage-lab-couchdb, storage-lab-api, storage-lab-worker]
+
+    - name: Wait for CouchDB health
+      ansible.builtin.uri:
+        url: http://127.0.0.1:5984/_up
+        status_code: 200
+      register: couchdb_health
+      until: couchdb_health.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Apply backend restarts before configuring the public gateway
+      ansible.builtin.meta: flush_handlers
 
     - name: Build portal assets on the controller
       ansible.builtin.command:
@@ -486,6 +553,11 @@
         dest: /etc/nginx/sites-available/storage-lab
         mode: '0644'
       notify: Reload Nginx
+
+    - name: Validate Nginx configuration
+      ansible.builtin.command:
+        argv: [nginx, -t]
+      changed_when: false
 
     - name: Enable Storage Lab Nginx site
       ansible.builtin.file:

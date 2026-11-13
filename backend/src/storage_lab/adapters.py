@@ -1,8 +1,9 @@
 """Service administration adapters. Only the worker should receive these credentials."""
 
 import json
+import time
 from hashlib import sha256
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import boto3
 import httpx
@@ -254,9 +255,108 @@ class RustFSAdapter:
         self._admin("DELETE", "remove-canned-policy", {"name": bucket})
 
 
+class CouchDBAdapter:
+    def __init__(self, settings: Settings):
+        if not all((settings.couchdb_admin_url, settings.couchdb_admin_user, settings.couchdb_admin_password)):
+            raise RuntimeError("CouchDB administration is not configured")
+        self.settings = settings
+        self.base_url = settings.couchdb_admin_url.rstrip("/")
+        self.admin_auth = (settings.couchdb_admin_user, settings.couchdb_admin_password)
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        return httpx.request(method, f"{self.base_url}{path}", auth=self.admin_auth, timeout=15, **kwargs)
+
+    @staticmethod
+    def _user_path(username: str) -> str:
+        return f"/_users/org.couchdb.user:{quote(username, safe='')}"
+
+    def _security(self, dbname: str) -> dict:
+        response = self._request("GET", f"/{dbname}/_security")
+        response.raise_for_status()
+        return response.json()
+
+    def _set_members(self, dbname: str, names: set[str]) -> None:
+        if not names:
+            raise RuntimeError("CouchDB database must have at least one member")
+        response = self._request(
+            "PUT",
+            f"/{dbname}/_security",
+            json={
+                "admins": {"names": [], "roles": []},
+                "members": {"names": sorted(names), "roles": []},
+            },
+        )
+        response.raise_for_status()
+
+    def provision(self, project_id: str) -> tuple[str, dict]:
+        dbname = resource_name(project_id)
+        response = self._request("PUT", f"/{dbname}")
+        if response.status_code != 412:
+            response.raise_for_status()
+        security = self._security(dbname)
+        names = set(security.get("members", {}).get("names") or [])
+        names.add(f"sl_browser_{project_id[:20]}")
+        self._set_members(dbname, names)
+        return dbname, {
+            "endpoint": f"{(self.settings.couchdb_public_url or self.base_url).rstrip('/')}/{dbname}",
+            "database": dbname,
+            "authentication": "basic",
+        }
+
+    def issue(self, project_id: str, username: str, secret: str, access: str = "runtime") -> None:
+        if access != "runtime":
+            raise ValueError("CouchDB credentials only support runtime access")
+        dbname = resource_name(project_id)
+        path = self._user_path(username)
+        existing = self._request("GET", path)
+        if existing.status_code not in {200, 404}:
+            existing.raise_for_status()
+        document = {"name": username, "password": secret, "roles": [], "type": "user"}
+        if existing.status_code == 200:
+            document["_rev"] = existing.json()["_rev"]
+        created = self._request("PUT", path, json=document)
+        created.raise_for_status()
+        security = self._security(dbname)
+        names = set(security.get("members", {}).get("names") or [])
+        names.add(username)
+        self._set_members(dbname, names)
+        for attempt in range(10):
+            verified = httpx.get(f"{self.base_url}/{dbname}", auth=(username, secret), timeout=10)
+            if verified.status_code == 200:
+                return
+            if verified.status_code != 401 or attempt == 9:
+                verified.raise_for_status()
+            time.sleep(0.2)
+
+    def revoke(self, project_id: str, username: str) -> None:
+        dbname = resource_name(project_id)
+        response = self._request("GET", f"/{dbname}/_security")
+        if response.status_code == 200:
+            names = set(response.json().get("members", {}).get("names") or [])
+            if username in names and len(names) > 1:
+                names.remove(username)
+                self._set_members(dbname, names)
+        elif response.status_code != 404:
+            response.raise_for_status()
+        path = self._user_path(username)
+        user = self._request("GET", path)
+        if user.status_code == 404:
+            return
+        user.raise_for_status()
+        deleted = self._request("DELETE", path, params={"rev": user.json()["_rev"]})
+        deleted.raise_for_status()
+
+    def delete(self, project_id: str) -> None:
+        response = self._request("DELETE", f"/{resource_name(project_id)}")
+        if response.status_code != 404:
+            response.raise_for_status()
+
+
 def adapter_for(kind: str, settings: Settings):
     if kind == "postgresql":
         return PostgreSQLAdapter(settings)
     if kind == "object-storage":
         return RustFSAdapter(settings)
+    if kind == "documents":
+        return CouchDBAdapter(settings)
     raise ValueError(f"Unsupported capability: {kind}")

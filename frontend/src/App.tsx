@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react'
 import { Alert, AppShell, Badge, Box, Button, Card, Code, Container, Divider, Group, Loader, Modal, Paper, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
-import { IconArrowLeft, IconDatabase, IconLogout, IconPlus, IconServer, IconTrash } from '@tabler/icons-react'
+import { IconArrowLeft, IconDatabase, IconFileText, IconLogout, IconPlus, IconServer, IconTrash } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'react-router'
 import { api, type Capability, type Credential, type IssuedCredential, type Member, type Operation, type Project, type StoredObject } from './api'
 import { AuthProvider, useAuth } from './auth'
+import { Documents } from './Documents'
 import './App.css'
 
 const kinds = {
   postgresql: { label: 'PostgreSQL', description: 'A private application database.', icon: IconDatabase },
   'object-storage': { label: 'Object storage', description: 'A private S3 bucket for files and artifacts.', icon: IconServer },
+  documents: { label: 'Documents', description: 'A private CouchDB database for JSON documents.', icon: IconFileText },
 } as const
 type Kind = keyof typeof kinds
 const notifyError = (error: unknown) => notifications.show({ color: 'red', title: 'Request failed', message: error instanceof Error ? error.message : String(error) })
@@ -127,7 +129,7 @@ function ProjectDetail() {
   const capabilities = useQuery({ queryKey: ['capabilities', projectId], queryFn: () => api<Capability[]>(`/projects/${projectId}/capabilities`, token!), enabled: !!projectId, refetchInterval: query => query.state.data?.some(item => ['pending', 'deleting'].includes(item.state)) ? 2000 : false })
   if (project.isLoading) return <Shell><Loader /></Shell>
   if (project.isError || !project.data) return <Shell><Alert color="red">Project could not be loaded.</Alert></Shell>
-  return <Shell><Stack gap="xl"><Box><Button component={Link} to="/" variant="subtle" leftSection={<IconArrowLeft size={16} />} px={0}>All projects</Button><Group justify="space-between" mt="md"><Box><Text className="eyebrow">PROJECT</Text><Title order={1}>{project.data.name}</Title><Text c="dimmed" size="sm">{project.data.id}</Text></Box><Badge size="lg" variant="light">{project.data.role}</Badge></Group></Box><Box><Title order={2} mb="md">Capabilities</Title><SimpleGrid cols={{ base: 1, md: 2 }}>{(Object.keys(kinds) as Kind[]).map(kind => <CapabilityCard key={kind} project={project.data!} kind={kind} capability={capabilities.data?.find(item => item.kind === kind)} />)}</SimpleGrid></Box>{capabilities.data?.some(item => item.kind === 'object-storage' && item.state === 'ready') && <Objects project={project.data} />}<Members project={project.data} /></Stack></Shell>
+  return <Shell><Stack gap="xl"><Box><Button component={Link} to="/" variant="subtle" leftSection={<IconArrowLeft size={16} />} px={0}>All projects</Button><Group justify="space-between" mt="md"><Box><Text className="eyebrow">PROJECT</Text><Title order={1}>{project.data.name}</Title><Text c="dimmed" size="sm">{project.data.id}</Text></Box><Badge size="lg" variant="light">{project.data.role}</Badge></Group></Box><Box><Title order={2} mb="md">Capabilities</Title><SimpleGrid cols={{ base: 1, md: 2 }}>{(Object.keys(kinds) as Kind[]).map(kind => <CapabilityCard key={kind} project={project.data!} kind={kind} capability={capabilities.data?.find(item => item.kind === kind)} />)}</SimpleGrid></Box>{capabilities.data?.some(item => item.kind === 'object-storage' && item.state === 'ready') && <Objects project={project.data} />}{capabilities.data?.some(item => item.kind === 'documents' && item.state === 'ready') && <Documents project={project.data} />}<Members project={project.data} /></Stack></Shell>
 }
 
 function AuthCallback() {

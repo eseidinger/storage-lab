@@ -24,7 +24,7 @@ def public_error(exc: Exception) -> str:
     if isinstance(exc, psycopg.Error):
         return f"PostgreSQL error: {exc.sqlstate or 'unknown'}"
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"RustFS admin error: HTTP {exc.response.status_code}"
+        return f"Service HTTP error: {exc.response.status_code}"
     return f"Service error: {type(exc).__name__}"
 
 
@@ -65,7 +65,7 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
         result = None
         if action == "provision":
             result = adapter.provision(project_id)
-            if kind == "object-storage":
+            if kind in {"object-storage", "documents"}:
                 if not settings.credential_key:
                     raise RuntimeError("Credential encryption is not configured")
                 with factory() as session:
@@ -74,7 +74,7 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
                     )
                     sealed = capability.browser_credential if capability is not None else None
                 if not sealed:
-                    raise RuntimeError("S3 browser credential is missing")
+                    raise RuntimeError("Browser credential is missing")
                 secret = Fernet(settings.credential_key).decrypt(sealed["encrypted_secret"].encode()).decode()
                 adapter.issue(project_id, sealed["username"], secret)
         elif action == "delete":
@@ -89,7 +89,7 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
                 capability = session.scalar(
                     select(Capability).where(Capability.project_id == project_id, Capability.kind == kind)
                 )
-                if kind == "object-storage" and capability is not None and capability.browser_credential:
+                if kind in {"object-storage", "documents"} and capability is not None and capability.browser_credential:
                     usernames.append(capability.browser_credential["username"])
             for username in usernames:
                 adapter.revoke(project_id, username)

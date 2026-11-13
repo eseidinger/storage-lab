@@ -1,6 +1,6 @@
 # Technology decisions
 
-**Status:** Implemented for the first PostgreSQL and object-storage slice.
+**Status:** Implemented for the PostgreSQL, object-storage, and document slices.
 
 ## API and worker
 
@@ -16,7 +16,7 @@ The API and provisioning worker are written in **Python**. FastAPI provides HTTP
 | [psycopg](https://www.psycopg.org/psycopg3/docs/) | PostgreSQL administration and live access checks |
 | [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html) | S3 resource and object operations |
 
-The API and worker use separate metadata database roles. Only the worker receives PostgreSQL and RustFS administrative credentials. Secret values in worker operations are encrypted at rest until the operation succeeds.
+The API and worker use separate metadata database roles. Only the worker receives PostgreSQL, RustFS, and CouchDB administrative credentials. Secret values in worker operations are encrypted at rest until the operation succeeds.
 
 ## Portal
 
@@ -34,4 +34,4 @@ The API remains authoritative for project permissions. One-time secrets stay in 
 
 ## Deployment and dependency management
 
-Ansible provisions the VM and deploys services, migrations, systemd units, Nginx configuration, and portal assets. Python dependencies are pinned in `backend/uv.lock` and the deployment `backend/requirements.txt`; frontend dependencies are pinned in `frontend/package-lock.json`. The local development VM uses Keycloak, RustFS, and two PostgreSQL clusters. Production TLS, inventory, backups, and external OIDC integration remain separate release work.
+Ansible provisions the VM and deploys services, migrations, systemd units, Nginx configuration, and portal assets. Python dependencies are pinned in `backend/uv.lock` and the deployment `backend/requirements.txt`; frontend dependencies are pinned in `frontend/package-lock.json`. The local development VM uses the Platform Keycloak realm, RustFS, CouchDB, and two PostgreSQL clusters. Production TLS, inventory, backups, and full browser OIDC verification remain separate release work.
