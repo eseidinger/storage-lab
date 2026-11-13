@@ -3,6 +3,10 @@ all:
     storage_lab:
       hosts:
         dev-vm:
+          storage_lab_oidc_issuer: https://identity.eseidinger.de/realms/platform
+          storage_lab_oidc_jwks_url: https://identity.eseidinger.de/realms/platform/protocol/openid-connect/certs
+          storage_lab_oidc_audience: storage-lab-api
+          storage_lab_oidc_client_id: storage-lab-portal
           ansible_host: 127.0.0.1
           ansible_port: 2222
           ansible_user: lab

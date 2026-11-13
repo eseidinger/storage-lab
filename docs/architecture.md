@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** The PostgreSQL and RustFS delivery slice is implemented and runs in the Ansible-managed local VM. CouchDB, HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** The PostgreSQL and RustFS delivery slice is implemented and runs in the Ansible-managed local VM. The development inventory uses the Platform Keycloak realm; a local Keycloak realm can be selected for isolated tests. CouchDB, HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -12,9 +12,10 @@
 | Python worker | Leased operation processing and service reconciliation | Internal; holds application PostgreSQL and RustFS admin credentials |
 | Application PostgreSQL | One database and non-login owner role per project | Guest port 5433; host loopback forwarding; TLS |
 | RustFS | One private bucket and policy per project | Internal port 9000; public S3 data proxy on guest port 9002/host port 9000 |
-| Local Keycloak | Development OIDC realm, portal client, and sample user | Host port 8081; replaceable with an external issuer |
+| Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
+| Local Keycloak | Optional isolated development realm and sample user | Host port 8081 when enabled |
 
-The local VM uses HTTP for its portal, Keycloak, and S3 gateway, and exposes forwarded ports only on the host loopback interface. Production deployment still requires DNS, trusted TLS certificates, HTTPS/WSS routing, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes are blocked by Nginx; RustFS itself binds to guest loopback. The metadata database is not forwarded.
+The local VM uses HTTP for its portal and S3 gateway; the Platform Keycloak endpoint uses HTTPS. Forwarded ports bind to the host loopback interface. Production deployment still requires DNS, trusted TLS certificates, HTTPS/WSS routing, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes are blocked by Nginx; RustFS itself binds to guest loopback. The metadata database is not forwarded.
 
 ## Identity and project authorization
 

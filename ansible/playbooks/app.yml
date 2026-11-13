@@ -15,17 +15,19 @@
     keycloak_admin_password: "{{ lookup('password', secret_dir ~ '/keycloak-admin-password length=32 chars=ascii_letters,digits') }}"
     keycloak_user_password: "{{ lookup('password', secret_dir ~ '/keycloak-user-password length=24 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
-    external_oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') }}"
+    use_local_keycloak: "{{ lookup('env', 'STORAGE_LAB_USE_LOCAL_KEYCLOAK') | default('false', true) | bool }}"
+    external_oidc_issuer: "{{ '' if use_local_keycloak else (lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default(''))) }}"
     oidc_issuer: "{{ external_oidc_issuer or 'http://localhost:8081/realms/storage-lab' }}"
-    oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or 'storage-lab-api' }}"
-    oidc_jwks_url: "{{ lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or 'http://127.0.0.1:8081/realms/storage-lab/protocol/openid-connect/certs' }}"
-    oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or 'storage-lab-portal' }}"
+    oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
+    oidc_jwks_url: "{{ 'http://127.0.0.1:8081/realms/storage-lab/protocol/openid-connect/certs' if use_local_keycloak or not external_oidc_issuer else (lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or (storage_lab_oidc_jwks_url | default(''))) }}"
+    oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or (storage_lab_oidc_client_id | default('storage-lab-portal')) }}"
   pre_tasks:
-    - name: Require a JWKS URL for an external OIDC issuer
+    - name: Validate external OIDC settings
       ansible.builtin.assert:
         that:
-          - not external_oidc_issuer or lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') | length > 0
-        fail_msg: Set STORAGE_LAB_OIDC_JWKS_URL when STORAGE_LAB_OIDC_ISSUER points to an external provider.
+          - not external_oidc_issuer or oidc_jwks_url | length > 0
+          - use_local_keycloak or not lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') | length > 0
+        fail_msg: Provide both issuer and JWKS URL when overriding an external OIDC provider.
 
     - name: Create local deployment secret directory
       ansible.builtin.file:
@@ -424,6 +426,25 @@
         enabled: true
         daemon_reload: true
       when: not external_oidc_issuer
+
+    - name: Check for an existing local Keycloak unit
+      ansible.builtin.stat:
+        path: /etc/systemd/system/storage-lab-keycloak.service
+      register: local_keycloak_unit
+      when: external_oidc_issuer | length > 0
+
+    - name: Stop unused local Keycloak
+      ansible.builtin.systemd_service:
+        name: storage-lab-keycloak
+        state: stopped
+        enabled: false
+      when: external_oidc_issuer | length > 0 and (local_keycloak_unit.stat.exists | default(false))
+
+    - name: Clear stopped local Keycloak service result
+      ansible.builtin.command:
+        argv: [systemctl, reset-failed, storage-lab-keycloak]
+      changed_when: false
+      when: external_oidc_issuer | length > 0 and (local_keycloak_unit.stat.exists | default(false))
 
     - name: Enable application services
       ansible.builtin.systemd_service:

@@ -8,7 +8,7 @@ Storage Lab is a single-host platform for project-scoped data services. Members 
 
 - **API and worker:** Python, FastAPI, Pydantic, SQLAlchemy, Alembic, psycopg, boto3, and PyJWT.
 - **Portal:** React, TypeScript, Mantine, Vite, React Router, TanStack Query, and `oidc-client-ts`.
-- **Deployment:** Ansible, systemd, Nginx, two separate PostgreSQL clusters, RustFS, and a local Keycloak realm for development.
+- **Deployment:** Ansible, systemd, Nginx, two separate PostgreSQL clusters, RustFS, and the Platform Keycloak realm. A local Keycloak realm remains available for isolated development.
 
 The [technology decisions](docs/technology-decisions.md) explain each library's role.
 
@@ -21,9 +21,9 @@ ansible-playbook ansible/playbooks/dev-vm.yml
 ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 ```
 
-Open `http://localhost:8080`, sign in as `lab`, and read the generated password from `.local/deploy/keycloak-user-password`. Development secrets and VM state remain under the ignored `.local/` directory. The API is exposed at `http://localhost:8080/api`; PostgreSQL and the public S3 gateway are forwarded to `localhost:5433` and `localhost:9000`. Keycloak is at `http://localhost:8081`. The metadata PostgreSQL cluster and RustFS administrative API are not forwarded. See the [VM guide](docs/development-vm.md) for SSH access, certificate setup, and verification commands.
+Open `http://localhost:8080` and sign in through the Platform Keycloak realm at `https://identity.eseidinger.de/realms/platform`. The development inventory sets client ID `storage-lab-portal` and API audience `storage-lab-api`. Development secrets and VM state remain under the ignored `.local/` directory. The API is exposed at `http://localhost:8080/api`; PostgreSQL and the public S3 gateway are forwarded to `localhost:5433` and `localhost:9000`. The metadata PostgreSQL cluster and RustFS administrative API are not forwarded. See the [VM guide](docs/development-vm.md) for SSH access, certificate setup, and verification commands.
 
-Set `STORAGE_LAB_OIDC_ISSUER`, `STORAGE_LAB_OIDC_JWKS_URL`, `STORAGE_LAB_OIDC_AUDIENCE`, and `STORAGE_LAB_OIDC_CLIENT_ID` before running the application playbook to use an external Keycloak realm instead of the local development realm. Configure that realm's portal client for Authorization Code with PKCE, redirect URI `http://localhost:8080/auth/callback`, and an access-token audience matching the API setting.
+The Platform realm's portal client must permit Authorization Code with PKCE, redirect URI `http://localhost:8080/auth/callback`, and an access-token audience of `storage-lab-api`. To switch to the local test realm, set `STORAGE_LAB_USE_LOCAL_KEYCLOAK=true` for the application playbook; its sample user is `lab`, with the generated password in `.local/deploy/keycloak-user-password`. To override the external realm, set both `STORAGE_LAB_OIDC_ISSUER` and `STORAGE_LAB_OIDC_JWKS_URL`, plus audience and client ID if they differ.
 
 ## Current project workflow
 
