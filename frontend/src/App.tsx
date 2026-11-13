@@ -140,9 +140,23 @@ function AuthCallback() {
 
 function PortalRoutes() {
   const { user, loading, configured, login } = useAuth()
+  const [loginError, setLoginError] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+  const signIn = async () => {
+    setLoginError('')
+    setSigningIn(true)
+    try {
+      await login()
+    } catch (error) {
+      setLoginError(error instanceof TypeError
+        ? `Could not load the identity provider at ${import.meta.env.VITE_OIDC_AUTHORITY}. Check that it is reachable, then try again.`
+        : error instanceof Error ? error.message : String(error))
+      setSigningIn(false)
+    }
+  }
   if (!configured) return <Container py="xl"><Alert color="yellow" title="OIDC is not configured">Set VITE_OIDC_AUTHORITY, VITE_OIDC_CLIENT_ID, and VITE_API_URL before starting the portal.</Alert></Container>
   if (loading) return <Container py="xl"><Loader /></Container>
-  return <Routes><Route path="/auth/callback" element={<AuthCallback />} />{!user ? <Route path="*" element={<Container py="xl"><Paper p="xl" withBorder><Title order={1}>Storage Lab</Title><Text c="dimmed" my="md">Sign in to manage your project data services.</Text><Button onClick={() => void login()}>Sign in</Button></Paper></Container>} /> : <><Route path="/" element={<Home />} /><Route path="/projects/:projectId" element={<ProjectDetail />} /></>}</Routes>
+  return <Routes><Route path="/auth/callback" element={<AuthCallback />} />{!user ? <Route path="*" element={<Container py="xl"><Paper p="xl" withBorder><Title order={1}>Storage Lab</Title><Text c="dimmed" my="md">Sign in to manage your project data services.</Text>{loginError && <Alert color="red" title="Sign-in could not start" mb="md">{loginError}</Alert>}<Button loading={signingIn} onClick={() => void signIn()}>Sign in</Button></Paper></Container>} /> : <><Route path="/" element={<Home />} /><Route path="/projects/:projectId" element={<ProjectDetail />} /></>}</Routes>
 }
 
 export default function App() { return <BrowserRouter><AuthProvider><PortalRoutes /></AuthProvider></BrowserRouter> }

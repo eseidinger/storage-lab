@@ -440,11 +440,19 @@
         enabled: false
       when: external_oidc_issuer | length > 0 and (local_keycloak_unit.stat.exists | default(false))
 
+    - name: Check whether stopped local Keycloak is marked failed
+      ansible.builtin.command:
+        argv: [systemctl, is-failed, storage-lab-keycloak]
+      register: local_keycloak_failed
+      failed_when: false
+      changed_when: false
+      when: external_oidc_issuer | length > 0 and (local_keycloak_unit.stat.exists | default(false))
+
     - name: Clear stopped local Keycloak service result
       ansible.builtin.command:
         argv: [systemctl, reset-failed, storage-lab-keycloak]
       changed_when: false
-      when: external_oidc_issuer | length > 0 and (local_keycloak_unit.stat.exists | default(false))
+      when: external_oidc_issuer | length > 0 and (local_keycloak_failed.stdout | default('')) == 'failed'
 
     - name: Enable application services
       ansible.builtin.systemd_service:
