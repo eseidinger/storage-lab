@@ -1,0 +1,14 @@
+[Unit]
+Description=Storage Lab development Keycloak
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/podman start -a storage-lab-keycloak
+ExecStop=/usr/bin/podman stop -t 10 storage-lab-keycloak
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

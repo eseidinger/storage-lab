@@ -1,72 +1,53 @@
 # Storage Lab
 
-**Status:** Architecture and implementation proposal. No application code has been added to this repository yet.
+Storage Lab is a single-host platform for project-scoped data services. Members sign in through OIDC, create projects, enable services, and manage workload credentials in a React portal. A Python API stores desired state and authorizes requests; a separate worker provisions resources.
 
-Storage Lab is a proposed single-host platform for project-scoped data services. Project members would create projects, enable capabilities, and track provisioning in a React portal. A Python API would manage projects, authorization, and desired state, while a separate worker would provision resources. Applications on the Developer Platform and external clients would connect to the lab's public data endpoints with credentials issued for their workloads.
+**Implemented now:** project membership and roles, asynchronous operations, PostgreSQL databases, private RustFS S3 buckets, workload credential issuance and revocation, an S3 object browser, and an Ansible-deployed local development VM. The other seven services in the [original concept](README_DE.md) remain planned. The current deployment is a local development environment with loopback host forwarding and HTTP; it is not a production deployment.
 
-## Technology choices
+## Technology
 
-- **API and worker:** Python, with FastAPI for the HTTP API, Pydantic for API contracts, SQLAlchemy for metadata persistence, and Alembic for schema migrations.
-- **Portal:** React with TypeScript and Mantine. Vite builds the application; React Router handles navigation; TanStack Query manages API data and operation-status refreshes; `oidc-client-ts` handles browser OIDC with PKCE. Mantine supplies components, forms, and notifications.
-- **Deployment:** Ansible provisions the development VM and prepares the guest. It will also deploy the API, worker, and portal when those applications exist.
+- **API and worker:** Python, FastAPI, Pydantic, SQLAlchemy, Alembic, psycopg, boto3, and PyJWT.
+- **Portal:** React, TypeScript, Mantine, Vite, React Router, TanStack Query, and `oidc-client-ts`.
+- **Deployment:** Ansible, systemd, Nginx, two separate PostgreSQL clusters, RustFS, and a local Keycloak realm for development.
 
-The [technology decisions](docs/technology-decisions.md) explain each library's role. No application code has been added yet.
+The [technology decisions](docs/technology-decisions.md) explain each library's role.
 
-## Proposed architecture
+## Run the local environment
 
-```mermaid
-flowchart LR
-    Members["Project members"] --> Portal["React portal"]
-    Portal -->|OIDC sign-in| Keycloak["Keycloak · Developer Platform"]
-    Portal --> API["Python API · FastAPI"]
-    API -->|OIDC metadata and JWKS| Keycloak
-    API --> Metadata[("PostgreSQL · lab metadata")]
-    Worker["Python provisioning worker"] -->|Jobs| Metadata
-    Worker -->|Provisioning| AppPG[("PostgreSQL · application databases")]
-    Worker --> Admin["Private administrative endpoints"]
-    Admin --> Stores["RustFS and other stores"]
-    Clients["Applications and external clients"] --> Data["Public data endpoints · TLS"]
-    Data --> AppPG
-    Data --> Stores
+The VM needs 16 vCPUs, 32 GiB RAM, an 80 GiB virtual disk, QEMU, Ansible, and access to the Ubuntu 24.04 cloud image on its first run. From the repository root:
+
+```sh
+ansible-playbook ansible/playbooks/dev-vm.yml
+ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 ```
 
-The lab would use the Developer Platform's Keycloak for user sign-in. Lab projects would have their own IDs, memberships, and lifecycle. The metadata and application PostgreSQL instances would be separate services on the same lab host. The metadata instance would remain internal; public endpoints would expose only the application data services needed by clients.
+Open `http://localhost:8080`, sign in as `lab`, and read the generated password from `.local/deploy/keycloak-user-password`. Development secrets and VM state remain under the ignored `.local/` directory. The API is exposed at `http://localhost:8080/api`; PostgreSQL and the public S3 gateway are forwarded to `localhost:5433` and `localhost:9000`. Keycloak is at `http://localhost:8081`. The metadata PostgreSQL cluster and RustFS administrative API are not forwarded. See the [VM guide](docs/development-vm.md) for SSH access, certificate setup, and verification commands.
 
-## Planned capabilities
+Set `STORAGE_LAB_OIDC_ISSUER`, `STORAGE_LAB_OIDC_JWKS_URL`, `STORAGE_LAB_OIDC_AUDIENCE`, and `STORAGE_LAB_OIDC_CLIENT_ID` before running the application playbook to use an external Keycloak realm instead of the local development realm. Configure that realm's portal client for Authorization Code with PKCE, redirect URI `http://localhost:8080/auth/callback`, and an access-token audience matching the API setting.
 
-| Capability | Service | Project resource |
-| --- | --- | --- |
-| `postgresql` | PostgreSQL | Database |
-| `object-storage` | RustFS | Private S3 bucket |
-| `documents` | CouchDB | Database |
-| `graph` | Apache HugeGraph | Graph |
-| `vectors` | Qdrant | Collection |
-| `key-value` | Valkey | Project key namespace |
-| `search` | OpenSearch | Index or index prefix |
-| `analytics` | ClickHouse | Database |
-| `events` | NATS with JetStream | Account, streams, and consumers |
+## Current project workflow
 
-The initial API model allows at most one activation of each capability per project. Resource names derive from stable internal project IDs so display names can change without renaming data resources. Each service adapter must verify that it can provision, isolate, rotate credentials for, and remove its project resources before that capability is offered.
+1. Sign in and create a project. The creator is its first administrator.
+2. Enable PostgreSQL or object storage. The API commits a capability record and operation; the worker reconciles the resource and reports status.
+3. Issue a one-time workload credential. PostgreSQL offers `runtime` access for data operations and `migration` access for schema changes. Migration sessions must run `SET ROLE <migration_role>` before creating objects so runtime grants apply to future tables. S3 credentials are restricted to the project's bucket.
+4. Use the portal to list, upload, download, and delete S3 objects. Project viewers can read; administrators can change resources and credentials.
+5. Revoke credentials or delete a capability after confirming the project name. Deletion removes its data.
 
-## Project workflow
+PostgreSQL clients should use TLS with hostname verification and trust the VM's `/etc/ssl/certs/storage-lab-pg.crt`. The development S3 endpoint uses HTTP on the local host only. Credentials are shown once when issued; operation and audit responses exclude secret values.
 
-1. An authorized member creates a project and enables a capability in the portal.
-2. The API validates the request and stores the desired state and provisioning job together in PostgreSQL.
-3. The worker reserves the job, creates the resource and its access policy, and verifies project-scoped access.
-4. The portal shows each capability's status, connection details, and available data view. Project administrators can issue, rotate, and revoke workload credentials.
+## Development checks
 
-Provisioning is intended to be idempotent: retrying a request or resuming after an interrupted job must not create duplicate resources. Secret values would be shown only when issued, while status and audit records would contain references.
+```sh
+cd backend && .venv/bin/pytest -q
+cd frontend && npm run build
+```
+
+The live verification scripts under `backend/scripts/` exercise service isolation, the API and worker lifecycle, and local OIDC. They run against the provisioned VM; commands and expected results are in the [VM guide](docs/development-vm.md).
 
 ## Documentation
 
-- [Project documentation](docs/architecture.md) covers components, access boundaries, provisioning, APIs, and operations.
-- [Technology decisions](docs/technology-decisions.md) records the chosen Python and React stacks.
-- [Implementation plan](docs/implementation-plan.md) defines delivery phases and acceptance criteria.
-- [Local development VM](docs/development-vm.md) explains the Ansible-managed Ubuntu VM and guest setup.
-- [German source concept](README_DE.md) records the original proposal.
-
-The first delivery target is an end-to-end flow for two isolated projects using PostgreSQL and S3. Other capabilities follow after their service-specific isolation and lifecycle checks pass.
-
-## Development environment
-
-Run `ansible-playbook ansible/playbooks/dev-vm.yml` to create and start a local VM with 16 vCPUs and 32 GiB RAM. Then run `ansible-playbook ansible/playbooks/deploy.yml` to prepare the guest for application deployment. See the [VM guide](docs/development-vm.md) for host requirements and access details. The repository does not yet contain application services to deploy.
+- [Architecture and API](docs/architecture.md)
+- [Implementation status and remaining plan](docs/implementation-plan.md)
+- [Technology decisions](docs/technology-decisions.md)
+- [Local development VM](docs/development-vm.md)
+- [Original German concept](README_DE.md)

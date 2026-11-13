@@ -1,0 +1,499 @@
+---
+- import_playbook: deploy.yml
+
+- name: Deploy Storage Lab services and applications
+  hosts: storage_lab
+  become: true
+  vars:
+    source_root: "{{ playbook_dir }}/../.."
+    secret_dir: "{{ source_root }}/.local/deploy"
+    api_db_password: "{{ lookup('password', secret_dir ~ '/api-db-password length=32 chars=ascii_letters,digits') }}"
+    worker_db_password: "{{ lookup('password', secret_dir ~ '/worker-db-password length=32 chars=ascii_letters,digits') }}"
+    app_pg_password: "{{ lookup('password', secret_dir ~ '/app-pg-password length=32 chars=ascii_letters,digits') }}"
+    rustfs_access_key: "{{ lookup('password', secret_dir ~ '/rustfs-access-key length=24 chars=ascii_letters,digits') }}"
+    rustfs_secret_key: "{{ lookup('password', secret_dir ~ '/rustfs-secret-key length=48 chars=ascii_letters,digits') }}"
+    keycloak_admin_password: "{{ lookup('password', secret_dir ~ '/keycloak-admin-password length=32 chars=ascii_letters,digits') }}"
+    keycloak_user_password: "{{ lookup('password', secret_dir ~ '/keycloak-user-password length=24 chars=ascii_letters,digits') }}"
+    credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
+    external_oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') }}"
+    oidc_issuer: "{{ external_oidc_issuer or 'http://localhost:8081/realms/storage-lab' }}"
+    oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or 'storage-lab-api' }}"
+    oidc_jwks_url: "{{ lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or 'http://127.0.0.1:8081/realms/storage-lab/protocol/openid-connect/certs' }}"
+    oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or 'storage-lab-portal' }}"
+  pre_tasks:
+    - name: Require a JWKS URL for an external OIDC issuer
+      ansible.builtin.assert:
+        that:
+          - not external_oidc_issuer or lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') | length > 0
+        fail_msg: Set STORAGE_LAB_OIDC_JWKS_URL when STORAGE_LAB_OIDC_ISSUER points to an external provider.
+
+    - name: Create local deployment secret directory
+      ansible.builtin.file:
+        path: "{{ secret_dir }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+
+    - name: Create stable credential encryption key
+      ansible.builtin.shell: >-
+        python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'
+        > {{ secret_dir }}/credential-key
+      args:
+        creates: "{{ secret_dir }}/credential-key"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+  tasks:
+    - name: Create separate application PostgreSQL cluster
+      ansible.builtin.command:
+        argv: [pg_createcluster, '16', storage_lab_app, '--port=5433']
+        creates: /etc/postgresql/16/storage_lab_app/postgresql.conf
+
+    - name: Create local PostgreSQL TLS certificate
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - -x509
+          - -nodes
+          - -newkey
+          - rsa:2048
+          - -days
+          - '365'
+          - -keyout
+          - /etc/ssl/private/storage-lab-pg.key
+          - -out
+          - /etc/ssl/certs/storage-lab-pg.crt
+          - -subj
+          - /CN=localhost
+          - -addext
+          - subjectAltName=DNS:localhost,IP:127.0.0.1
+        creates: /etc/ssl/private/storage-lab-pg.key
+
+    - name: Protect PostgreSQL TLS key
+      ansible.builtin.file:
+        path: /etc/ssl/private/storage-lab-pg.key
+        owner: postgres
+        group: postgres
+        mode: '0600'
+
+    - name: Make PostgreSQL TLS certificate readable
+      ansible.builtin.file:
+        path: /etc/ssl/certs/storage-lab-pg.crt
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Configure application PostgreSQL
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/16/storage_lab_app/postgresql.conf
+        regexp: "^#?{{ item.key }}\\s*="
+        line: "{{ item.key }} = {{ item.value }}"
+      loop:
+        - { key: listen_addresses, value: "'*'" }
+        - { key: ssl, value: 'on' }
+        - { key: ssl_cert_file, value: "'/etc/ssl/certs/storage-lab-pg.crt'" }
+        - { key: ssl_key_file, value: "'/etc/ssl/private/storage-lab-pg.key'" }
+      notify: Restart application PostgreSQL
+
+    - name: Require TLS from the VM forwarding network
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/16/storage_lab_app/pg_hba.conf
+        line: 'hostssl all all 10.0.2.0/24 scram-sha-256'
+        state: present
+      notify: Restart application PostgreSQL
+
+    - name: Keep metadata PostgreSQL on loopback
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/16/main/postgresql.conf
+        regexp: '^#?listen_addresses\s*='
+        line: "listen_addresses = 'localhost'"
+      notify: Restart metadata PostgreSQL
+
+    - name: Start metadata PostgreSQL
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Check application PostgreSQL cluster
+      ansible.builtin.command:
+        argv: [pg_ctlcluster, '16', storage_lab_app, status]
+      register: app_pg_status
+      failed_when: false
+      changed_when: false
+
+    - name: Start application PostgreSQL cluster
+      ansible.builtin.command:
+        argv: [pg_ctlcluster, '16', storage_lab_app, start]
+      when: app_pg_status.rc != 0
+
+    - name: Apply PostgreSQL configuration before role creation
+      ansible.builtin.meta: flush_handlers
+
+    - name: Create metadata roles and passwords
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -v
+          - ON_ERROR_STOP=1
+          - -p
+          - '5432'
+          - -d
+          - postgres
+          - -c
+          - >-
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'storage_lab_worker') THEN
+                CREATE ROLE storage_lab_worker LOGIN;
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'storage_lab_api') THEN
+                CREATE ROLE storage_lab_api LOGIN;
+              END IF;
+            END $$;
+            ALTER ROLE storage_lab_worker PASSWORD '{{ worker_db_password }}';
+            ALTER ROLE storage_lab_api PASSWORD '{{ api_db_password }}';
+      become_user: postgres
+      changed_when: false
+      no_log: true
+
+    - name: Check metadata database
+      ansible.builtin.command:
+        argv: [psql, -p, '5432', -d, postgres, -Atqc, "SELECT 1 FROM pg_database WHERE datname = 'storage_lab'"]
+      become_user: postgres
+      register: metadata_db
+      changed_when: false
+
+    - name: Create metadata database
+      ansible.builtin.command:
+        argv: [createdb, -p, '5432', -O, storage_lab_worker, storage_lab]
+      become_user: postgres
+      when: metadata_db.stdout | trim != '1'
+
+    - name: Restrict metadata database access
+      ansible.builtin.command:
+        argv: [psql, -p, '5432', -d, storage_lab, -v, ON_ERROR_STOP=1, -c, 'REVOKE ALL ON DATABASE storage_lab FROM PUBLIC; GRANT CONNECT ON DATABASE storage_lab TO storage_lab_api; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO storage_lab_api;']
+      become_user: postgres
+      changed_when: false
+
+    - name: Set application PostgreSQL administrator password
+      ansible.builtin.command:
+        argv: [psql, -p, '5433', -d, postgres, -v, ON_ERROR_STOP=1, -c, "ALTER ROLE postgres PASSWORD '{{ app_pg_password }}';"]
+      become_user: postgres
+      changed_when: false
+      no_log: true
+
+    - name: Create service identities
+      ansible.builtin.user:
+        name: "{{ item }}"
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+      loop: [storage-lab-api, storage-lab-worker]
+
+    - name: Create service directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /etc/storage-lab, mode: '0755' }
+        - { path: /opt/storage-lab/backend/src, mode: '0755' }
+        - { path: /opt/storage-lab/backend/migrations, mode: '0755' }
+        - { path: /opt/storage-lab/backend/scripts, mode: '0755' }
+        - { path: /var/www/storage-lab, mode: '0755' }
+
+    - name: Copy backend source
+      ansible.builtin.copy:
+        src: "{{ source_root }}/backend/src/"
+        dest: /opt/storage-lab/backend/src/
+        mode: preserve
+      notify: Restart API and worker
+
+    - name: Copy database migrations
+      ansible.builtin.copy:
+        src: "{{ source_root }}/backend/migrations/"
+        dest: /opt/storage-lab/backend/migrations/
+        mode: preserve
+
+    - name: Copy development verification scripts
+      ansible.builtin.copy:
+        src: "{{ source_root }}/backend/scripts/"
+        dest: /opt/storage-lab/backend/scripts/
+        mode: preserve
+
+    - name: Copy backend deployment files
+      ansible.builtin.copy:
+        src: "{{ source_root }}/backend/{{ item }}"
+        dest: "/opt/storage-lab/backend/{{ item }}"
+        mode: '0644'
+      loop: [alembic.ini, requirements.txt]
+
+    - name: Install pinned Python dependencies
+      ansible.builtin.pip:
+        requirements: /opt/storage-lab/backend/requirements.txt
+        virtualenv: /opt/storage-lab/venv
+        virtualenv_command: python3 -m venv
+
+    - name: Configure API environment
+      ansible.builtin.template:
+        src: ../templates/api.env.j2
+        dest: /etc/storage-lab/api.env
+        owner: root
+        group: storage-lab-api
+        mode: '0640'
+      no_log: true
+      notify: Restart API and worker
+
+    - name: Configure worker environment
+      ansible.builtin.template:
+        src: ../templates/worker.env.j2
+        dest: /etc/storage-lab/worker.env
+        owner: root
+        group: storage-lab-worker
+        mode: '0640'
+      no_log: true
+      notify: Restart API and worker
+
+    - name: Apply metadata migrations
+      ansible.builtin.command:
+        argv: [/opt/storage-lab/venv/bin/alembic, -c, alembic.ini, upgrade, head]
+        chdir: /opt/storage-lab/backend
+      environment:
+        PYTHONPATH: /opt/storage-lab/backend/src
+        STORAGE_LAB_DATABASE_URL: "postgresql+psycopg://storage_lab_worker:{{ worker_db_password }}@127.0.0.1:5432/storage_lab"
+      changed_when: false
+      no_log: true
+
+    - name: Grant API access to migrated metadata tables
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -p
+          - '5432'
+          - -d
+          - storage_lab
+          - -v
+          - ON_ERROR_STOP=1
+          - -c
+          - >-
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO storage_lab_api;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO storage_lab_api;
+            ALTER DEFAULT PRIVILEGES FOR ROLE storage_lab_worker IN SCHEMA public
+              GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO storage_lab_api;
+            ALTER DEFAULT PRIVILEGES FOR ROLE storage_lab_worker IN SCHEMA public
+              GRANT USAGE, SELECT ON SEQUENCES TO storage_lab_api;
+      become_user: postgres
+      changed_when: false
+
+    - name: Install API and worker systemd units
+      ansible.builtin.template:
+        src: "../templates/{{ item }}.service.j2"
+        dest: "/etc/systemd/system/{{ item }}.service"
+        mode: '0644'
+      loop: [storage-lab-api, storage-lab-worker]
+      notify: Restart API and worker
+
+    - name: Check RustFS persistent volume
+      ansible.builtin.command:
+        argv: [podman, volume, exists, rustfs-data]
+      register: rustfs_volume
+      failed_when: false
+      changed_when: false
+
+    - name: Create RustFS persistent volume
+      ansible.builtin.command:
+        argv: [podman, volume, create, rustfs-data]
+      when: rustfs_volume.rc != 0
+
+    - name: Check RustFS container
+      ansible.builtin.command:
+        argv: [podman, container, exists, storage-lab-rustfs]
+      register: rustfs_container
+      failed_when: false
+      changed_when: false
+
+    - name: Create private RustFS container
+      ansible.builtin.command:
+        argv:
+          - podman
+          - create
+          - --name
+          - storage-lab-rustfs
+          - -p
+          - 127.0.0.1:9000:9000
+          - -v
+          - rustfs-data:/data
+          - -e
+          - "RUSTFS_ACCESS_KEY={{ rustfs_access_key }}"
+          - -e
+          - "RUSTFS_SECRET_KEY={{ rustfs_secret_key }}"
+          - -e
+          - RUSTFS_ADDRESS=:9000
+          - -e
+          - RUSTFS_CONSOLE_ENABLE=false
+          - docker.io/rustfs/rustfs@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
+          - /data
+      when: rustfs_container.rc != 0
+      no_log: true
+
+    - name: Install RustFS systemd unit
+      ansible.builtin.copy:
+        src: ../files/storage-lab-rustfs.service
+        dest: /etc/systemd/system/storage-lab-rustfs.service
+        mode: '0644'
+
+    - name: Create local Keycloak realm import directory
+      ansible.builtin.file:
+        path: /opt/storage-lab/keycloak-import
+        state: directory
+        mode: '0755'
+      when: not external_oidc_issuer
+
+    - name: Render local development Keycloak realm
+      ansible.builtin.template:
+        src: ../templates/storage-lab-realm.json.j2
+        dest: /opt/storage-lab/keycloak-import/storage-lab-realm.json
+        mode: '0644'
+      when: not external_oidc_issuer
+      no_log: true
+
+    - name: Check local Keycloak data volume
+      ansible.builtin.command:
+        argv: [podman, volume, exists, storage-lab-keycloak-data]
+      register: keycloak_volume
+      failed_when: false
+      changed_when: false
+      when: not external_oidc_issuer
+
+    - name: Create local Keycloak data volume
+      ansible.builtin.command:
+        argv: [podman, volume, create, storage-lab-keycloak-data]
+      when: not external_oidc_issuer and keycloak_volume.rc != 0
+
+    - name: Check local Keycloak container
+      ansible.builtin.command:
+        argv: [podman, container, exists, storage-lab-keycloak]
+      register: keycloak_container
+      failed_when: false
+      changed_when: false
+      when: not external_oidc_issuer
+
+    - name: Create local development Keycloak container
+      ansible.builtin.command:
+        argv:
+          - podman
+          - create
+          - --name
+          - storage-lab-keycloak
+          - --memory
+          - 2g
+          - -p
+          - 8081:8080
+          - -v
+          - storage-lab-keycloak-data:/opt/keycloak/data
+          - -v
+          - /opt/storage-lab/keycloak-import:/opt/keycloak/data/import:ro
+          - -e
+          - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+          - -e
+          - "KC_BOOTSTRAP_ADMIN_PASSWORD={{ keycloak_admin_password }}"
+          - -e
+          - KC_HOSTNAME=http://localhost:8081
+          - quay.io/keycloak/keycloak:26.8.2
+          - start-dev
+          - --import-realm
+      when: not external_oidc_issuer and keycloak_container.rc != 0
+      no_log: true
+
+    - name: Install local Keycloak systemd unit
+      ansible.builtin.copy:
+        src: ../files/storage-lab-keycloak.service
+        dest: /etc/systemd/system/storage-lab-keycloak.service
+        mode: '0644'
+      when: not external_oidc_issuer
+
+    - name: Enable local Keycloak
+      ansible.builtin.systemd_service:
+        name: storage-lab-keycloak
+        state: started
+        enabled: true
+        daemon_reload: true
+      when: not external_oidc_issuer
+
+    - name: Enable application services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+        daemon_reload: true
+      loop: [storage-lab-rustfs, storage-lab-api, storage-lab-worker]
+
+    - name: Build portal assets on the controller
+      ansible.builtin.command:
+        argv: [npm, run, build]
+        chdir: "{{ source_root }}/frontend"
+      environment:
+        VITE_API_URL: /api
+        VITE_OIDC_AUTHORITY: "{{ oidc_issuer }}"
+        VITE_OIDC_CLIENT_ID: "{{ oidc_client_id }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Deploy portal assets
+      ansible.builtin.copy:
+        src: "{{ source_root }}/frontend/dist/"
+        dest: /var/www/storage-lab/
+        mode: preserve
+
+    - name: Configure portal and S3 gateway
+      ansible.builtin.template:
+        src: ../templates/storage-lab.nginx.j2
+        dest: /etc/nginx/sites-available/storage-lab
+        mode: '0644'
+      notify: Reload Nginx
+
+    - name: Enable Storage Lab Nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/storage-lab
+        dest: /etc/nginx/sites-enabled/storage-lab
+        state: link
+      notify: Reload Nginx
+
+    - name: Disable default Nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Start Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart metadata PostgreSQL
+      ansible.builtin.command:
+        argv: [pg_ctlcluster, '16', main, restart]
+
+    - name: Restart application PostgreSQL
+      ansible.builtin.command:
+        argv: [pg_ctlcluster, '16', storage_lab_app, restart]
+
+    - name: Restart API and worker
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: restarted
+        daemon_reload: true
+      loop: [storage-lab-api, storage-lab-worker]
+
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

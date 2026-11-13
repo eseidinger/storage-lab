@@ -1,0 +1,23 @@
+[Unit]
+Description=Storage Lab provisioning worker
+After=network-online.target postgresql.service storage-lab-rustfs.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=storage-lab-worker
+Group=storage-lab-worker
+WorkingDirectory=/opt/storage-lab/backend
+Environment=PYTHONPATH=/opt/storage-lab/backend/src
+Environment=HOME=/var/lib/storage-lab-worker
+EnvironmentFile=/etc/storage-lab/worker.env
+StateDirectory=storage-lab-worker
+ExecStart=/opt/storage-lab/venv/bin/python -m storage_lab.worker
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

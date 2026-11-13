@@ -1,0 +1,43 @@
+{
+  "realm": "storage-lab",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "storage-lab-portal",
+      "name": "Storage Lab Portal",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:8080/auth/callback"],
+      "webOrigins": ["http://localhost:8080"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "storage-lab-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "storage-lab-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "lab",
+      "enabled": true,
+      "firstName": "Local",
+      "lastName": "Developer",
+      "email": "lab@localhost.invalid",
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "{{ keycloak_user_password }}", "temporary": false }
+      ]
+    }
+  ]
+}

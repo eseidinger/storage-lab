@@ -1,0 +1,21 @@
+[Unit]
+Description=Storage Lab API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=storage-lab-api
+Group=storage-lab-api
+WorkingDirectory=/opt/storage-lab/backend
+Environment=PYTHONPATH=/opt/storage-lab/backend/src
+EnvironmentFile=/etc/storage-lab/api.env
+ExecStart=/opt/storage-lab/venv/bin/uvicorn storage_lab.api:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

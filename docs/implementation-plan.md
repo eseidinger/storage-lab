@@ -1,105 +1,42 @@
 # Storage Lab implementation plan
 
-**Planning basis:** The [project documentation](architecture.md) and [German source concept](../README_DE.md). The repository currently has development infrastructure automation but no application code. This plan defines proposed work and acceptance criteria; it does not imply that any phase is complete.
+The [architecture](architecture.md) describes the current two-capability system. This plan separates work already implemented from release gates that remain open. The broader scope comes from the [original German concept](../README_DE.md).
 
-## Delivery principle
+## Current implementation
 
-Build one complete, isolated flow for PostgreSQL and S3 before adding more services. Keep the API's desired state and operation state in metadata PostgreSQL, with a separate worker that reconciles actual service state. A capability is ready only when provisioning, authorization, credential lifecycle, deletion, and recovery work for two different projects.
-
-## Phase 1 — Foundation and contracts
-
-**Work**
-
-- Define project roles, capability states, operation states, error categories, and stable resource naming rules.
-- Specify API request and response schemas, including how a repeated `PUT` reuses an operation and how deletion is confirmed.
-- Scaffold the [chosen stacks](technology-decisions.md): Python with FastAPI, Pydantic, SQLAlchemy, and Alembic for the API and worker; React with TypeScript, Mantine, Vite, React Router, TanStack Query, and `oidc-client-ts` for the portal. Pin compatible versions in application lockfiles.
-- Use Ansible for the local VM and subsequent application deployment. The development VM is specified with 16 vCPUs and 32 GiB RAM; define separate inventories for later environments.
-- Set up the application repository structure, local single-host service deployment, configuration, secrets handling, and versioned metadata migrations.
-- Provision separate metadata and application PostgreSQL instances and establish private worker administration access.
-- Configure the portal OIDC client, API audience, DNS names, TLS, and public versus private routes.
-
-**Acceptance**
-
-- The API rejects invalid signatures, issuers, audiences, and expired tokens.
-- A valid user without project membership cannot read or change that project, including its operations.
-- The metadata database and service administration endpoints are not reachable through public data routes.
-- API and worker use separate least-privilege metadata roles.
-- The [development VM](development-vm.md) can be recreated from Ansible without committing its disk or SSH key.
-
-## Phase 2 — Project and operation workflow
-
-**Work**
-
-- Implement the React and Mantine project list and detail flow, forms, membership checks, and capability status views. Use TanStack Query to refresh asynchronous operation status.
-- Implement the FastAPI service with Pydantic contracts and SQLAlchemy transactions for desired capability state and provisioning jobs; manage metadata schema changes with Alembic.
-- Implement leased job claiming, retries, observable failure reasons, and reconciliation after worker interruption.
-- Add audit events that record actors and resource references without secret values.
-
-**Acceptance**
-
-- Repeating an activation request for the same target state does not schedule duplicate resources.
-- A failed capability shows its own error and retry path without changing another capability's status.
-- A worker restart can resume a partially completed operation from observed service state.
-
-## Phase 3 — PostgreSQL adapter
-
-**Work**
-
-- Create a project database and non-login owner role on the application instance.
-- Create distinct migration and runtime login roles; revoke default access and grant only required database, schema, and object privileges.
-- Issue, rotate, and revoke workload passwords; expose only non-secret connection details in ordinary API responses.
-- Verify TLS connections with hostname checking and project isolation through the public endpoint.
-- Implement deletion and reconciliation for partial database or role creation.
-
-**Acceptance**
-
-- Projects A and B can each connect to their own database and perform permitted operations.
-- Each project's roles are denied access to the other project's database and to administration privileges.
-- After interruption between database creation and grants, a retry leaves exactly one usable database with the intended owner and privileges.
-
-## Phase 4 — RustFS S3 adapter and object view
-
-**Work**
-
-- Validate the selected RustFS version's administrative support for bucket creation, policies, credential issuance, and revocation.
-- Create a private bucket and project-scoped policy; support separate credentials per workload.
-- Display connection details and build a project object list with upload and download.
-- If direct browser transfers are used, issue short-lived presigned URLs after authorization and configure only the necessary CORS origin.
-- Implement credential rotation, revocation, bucket deletion, and recovery after partial creation.
-
-**Acceptance**
-
-- Projects A and B can upload and download their own objects but cannot list or read each other's buckets.
-- A revoked credential no longer grants access.
-- Browser actions and direct S3 requests enforce the same project boundary.
-
-## Phase 5 — Recovery and first release gate
-
-**Work**
-
-- Exercise backup and restore separately for metadata PostgreSQL, application PostgreSQL, and RustFS data.
-- Reconcile restored metadata with actual databases, buckets, roles, and credentials before worker jobs resume.
-- Document operator procedures for failed jobs, credential rotation, and confirmed deletion.
-- Verify public endpoint exposure and confirm that metadata and administrative access remain private.
-
-**First release gate**
-
-- Two projects complete portal sign-in, project creation, PostgreSQL provisioning, S3 provisioning, credential issuance, and data access.
-- Cross-project access fails through the API, job-status endpoint, PostgreSQL, S3, and browser views.
-- Wrong-audience tokens fail, and users without lab membership cannot enter another project.
-- Interrupted jobs resume without duplicate resources; a backup can be restored and reconciled.
-
-## Phase 6 — Additional capabilities
-
-Add adapters one at a time: CouchDB, HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream. For each adapter, first verify the selected service version's administrative and access-control APIs. Then implement provisioning, project-scoped credentials, access checks, rotation, revocation, deletion, retry, and restore reconciliation. Add a portal view or native dashboard only after direct API access and browser access enforce the same project boundary. JetStream needs an explicit test with separate NATS accounts.
-
-## Decisions to settle during Phase 1
-
-| Decision | Why it matters |
+| Area | Status and evidence |
 | --- | --- |
-| Exact project role model and invitation flow | Determines who can create projects, enable capabilities, view data, and manage credentials |
-| Secret delivery and storage mechanism | Determines how one-time credential values reach workloads and how rotation is audited |
-| Service versions and deployment layout | Determines which adapter APIs and isolation features can be relied upon |
-| Per-service quotas and resource limits | Prevents one project from exhausting the shared host where the service supports limits |
-| Backup targets, retention, and restore objectives | Determines whether recovery meets the lab's operational needs |
-| Deletion retention and confirmation semantics | Prevents accidental loss and defines the worker's cleanup behavior |
+| Foundation | Python FastAPI API and worker, React/TypeScript/Mantine portal, SQLAlchemy models, Alembic migrations, pinned Python and npm dependencies |
+| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys two PostgreSQL clusters, RustFS, Keycloak, API, worker, portal, and Nginx |
+| Identity and projects | OIDC token verification, local project memberships, administrator/viewer roles, project and operation authorization, audit records |
+| Provisioning | Transactional operation creation, worker leasing, idempotent PostgreSQL/S3 reconciliation, error reporting and retry |
+| PostgreSQL | Project database, non-login owner, separate migration/runtime credentials, TLS, revocation, deletion, cross-project access test |
+| Object storage | Private RustFS bucket and policy, per-workload keys, revocation, deletion, API-backed object browser, cross-project access test |
+| Verification | Backend tests, frontend production build, live two-project API/worker/service verification, and a real local Keycloak token accepted by the API |
+
+This is a working **local development slice**, not a completed production release. Browser login is configured with local Keycloak; the API token path was verified, while a full automated browser journey is still outstanding. The project's seven additional service adapters are not implemented.
+
+## Next gate — first release quality
+
+1. Add an automated browser journey for sign-in, project creation, capability status, credential issuance, and object operations. Repeat it with two identities and verify authorization failures for cross-project API and browser access.
+2. Add worker lease renewal or limit concurrency to one worker and enforce a timeout shorter than the lease. Exercise interruption during each adapter step and verify recovery from observed PostgreSQL and RustFS state.
+3. Define quotas, upload size limits, S3 object pagination UX, and operation metrics. Add endpoint health checks to the deployment playbook.
+4. Add backup and restore automation for metadata PostgreSQL, application PostgreSQL, RustFS, and encryption keys. Restore a test backup and reconcile before restarting the worker.
+5. Prepare a production inventory with DNS, trusted TLS, certificate renewal, secret storage, monitoring, firewall rules, and exposure tests. Replace the local Keycloak realm with the Developer Platform issuer when its issuer, audience, JWKS URL, and portal client are available.
+6. Define project deletion and retention policy. Make destructive operations follow the approved retention period and verify credential revocation before deletion.
+
+**Release acceptance:** Two projects complete sign-in, PostgreSQL and S3 provisioning, credential issuance, data access, revocation, and confirmed deletion. Each project is denied access to the other's API state, PostgreSQL database, S3 bucket, and browser views. Wrong-issuer, wrong-audience, expired, and unsigned tokens fail. An interrupted job resumes without duplicate resources. Backups restore successfully, and only intended data endpoints are public.
+
+## Later capabilities
+
+Add one service adapter at a time: CouchDB, HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream. For each selected service version, verify its administrative and access-control APIs first. Then implement resource creation, per-project authorization, workload credentials, rotation, revocation, deletion, retry, restore reconciliation, and a project-safe portal view. JetStream requires a dedicated test with separate NATS accounts.
+
+## Decisions still needed
+
+| Decision | Impact |
+| --- | --- |
+| Developer Platform OIDC values and client configuration | Replaces local Keycloak for shared development and release |
+| Backup targets, retention, and recovery objectives | Determines restore procedure and release gate |
+| Per-service quotas and host capacity | Prevents a project from exhausting the shared host |
+| Project deletion retention | Defines when data is irreversibly removed |
+| Production DNS, TLS, and secret store | Defines the public endpoint and operator boundary |
