@@ -1,0 +1,26 @@
+---
+- name: Prepare the Storage Lab development guest for deployment
+  hosts: storage_lab
+  become: true
+  tasks:
+    - name: Install deployment prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - git
+          - podman
+          - python3
+          - python3-pip
+          - python3-venv
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create application deployment directory
+      ansible.builtin.file:
+        path: /opt/storage-lab
+        state: directory
+        owner: lab
+        group: lab
+        mode: '0755'

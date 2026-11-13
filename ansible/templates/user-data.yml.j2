@@ -1,0 +1,14 @@
+#cloud-config
+hostname: storage-lab-dev
+manage_etc_hosts: true
+ssh_pwauth: false
+disable_root: true
+users:
+  - default
+  - name: lab
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - {{ lookup('file', vm_dir ~ '/id_ed25519.pub') | trim }}

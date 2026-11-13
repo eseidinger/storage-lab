@@ -1,0 +1,165 @@
+---
+- name: Provision the local Storage Lab development VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vm_dir: "{{ playbook_dir }}/../../.local/dev-vm"
+    vm_name: storage-lab-dev
+    vm_cpus: 16
+    vm_memory_mib: 32768
+    vm_disk_size: 80G
+    vm_ssh_port: 2222
+    vm_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    vm_base_image: "{{ vm_dir }}/ubuntu-24.04-cloud.img"
+    vm_disk: "{{ vm_dir }}/disk.qcow2"
+    vm_seed: "{{ vm_dir }}/seed.iso"
+    vm_pidfile: "{{ vm_dir }}/qemu.pid"
+  tasks:
+    - name: Check required host programs
+      ansible.builtin.command:
+        argv: [which, "{{ item }}"]
+      loop:
+        - qemu-system-x86_64
+        - qemu-img
+        - cloud-localds
+        - ssh-keygen
+      changed_when: false
+
+    - name: Create VM state directory
+      ansible.builtin.file:
+        path: "{{ vm_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Create a dedicated SSH key for the VM
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ''
+          - -f
+          - "{{ vm_dir }}/id_ed25519"
+        creates: "{{ vm_dir }}/id_ed25519"
+
+    - name: Download Ubuntu 24.04 cloud image
+      ansible.builtin.get_url:
+        url: "{{ vm_image_url }}"
+        dest: "{{ vm_base_image }}"
+        mode: '0644'
+        timeout: 120
+
+    - name: Check whether the VM disk exists
+      ansible.builtin.stat:
+        path: "{{ vm_disk }}"
+      register: disk_stat
+
+    - name: Copy the cloud image into an independent VM disk
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - convert
+          - -O
+          - qcow2
+          - "{{ vm_base_image }}"
+          - "{{ vm_disk }}"
+      when: not disk_stat.stat.exists
+
+    - name: Set VM disk capacity
+      ansible.builtin.command:
+        argv: [qemu-img, resize, "{{ vm_disk }}", "{{ vm_disk_size }}"]
+      when: not disk_stat.stat.exists
+
+    - name: Render cloud-init user data
+      ansible.builtin.template:
+        src: ../templates/user-data.yml.j2
+        dest: "{{ vm_dir }}/user-data"
+        mode: '0600'
+      register: user_data
+
+    - name: Render cloud-init metadata
+      ansible.builtin.template:
+        src: ../templates/meta-data.yml.j2
+        dest: "{{ vm_dir }}/meta-data"
+        mode: '0600'
+      register: meta_data
+
+    - name: Check whether cloud-init seed exists
+      ansible.builtin.stat:
+        path: "{{ vm_seed }}"
+      register: seed_stat
+
+    - name: Build cloud-init seed image
+      ansible.builtin.command:
+        argv:
+          - cloud-localds
+          - "{{ vm_seed }}"
+          - "{{ vm_dir }}/user-data"
+          - "{{ vm_dir }}/meta-data"
+      when: user_data.changed or meta_data.changed or not seed_stat.stat.exists
+
+    - name: Check whether this user can access KVM
+      ansible.builtin.command:
+        argv: [test, -r, /dev/kvm, -a, -w, /dev/kvm]
+      register: kvm_access
+      changed_when: false
+      failed_when: false
+
+    - name: Check existing QEMU PID file
+      ansible.builtin.stat:
+        path: "{{ vm_pidfile }}"
+      register: pidfile_stat
+
+    - name: Check whether the existing VM process is alive
+      ansible.builtin.command:
+        argv:
+          - ps
+          - -p
+          - "{{ lookup('file', vm_pidfile) | trim }}"
+          - -o
+          - args=
+      register: vm_process
+      changed_when: false
+      failed_when: false
+      when: pidfile_stat.stat.exists
+
+    - name: Start development VM
+      ansible.builtin.command:
+        argv:
+          - qemu-system-x86_64
+          - -name
+          - "{{ vm_name }}"
+          - -accel
+          - "{{ 'kvm' if kvm_access.rc == 0 else 'tcg,thread=multi' }}"
+          - -cpu
+          - "{{ 'host' if kvm_access.rc == 0 else 'max' }}"
+          - -smp
+          - "{{ vm_cpus }},sockets=1,cores={{ vm_cpus }},threads=1"
+          - -m
+          - "{{ vm_memory_mib }}"
+          - -drive
+          - "file={{ vm_disk }},if=virtio,format=qcow2"
+          - -drive
+          - "file={{ vm_seed }},if=virtio,media=cdrom,format=raw"
+          - -netdev
+          - "user,id=net0,hostfwd=tcp:127.0.0.1:{{ vm_ssh_port }}-:22"
+          - -device
+          - virtio-net-pci,netdev=net0
+          - -display
+          - none
+          - -serial
+          - "file:{{ vm_dir }}/console.log"
+          - -daemonize
+          - -pidfile
+          - "{{ vm_pidfile }}"
+      when: not pidfile_stat.stat.exists or vm_process.rc != 0 or vm_name not in vm_process.stdout
+
+    - name: Wait for the guest SSH port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ vm_ssh_port }}"
+        delay: 5
+        timeout: 900
