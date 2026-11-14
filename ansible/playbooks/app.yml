@@ -138,6 +138,11 @@
       no_log: true
 
   tasks:
+    - name: Clear previous image build context
+      ansible.builtin.file:
+        path: /opt/storage-lab/image
+        state: absent
+
     - name: Create Compose directories
       ansible.builtin.file:
         path: "{{ item }}"
