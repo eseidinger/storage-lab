@@ -17,6 +17,7 @@ from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 from .settings import Settings
+from .valkey_adapter import ValkeyAdapter
 
 
 def resource_name(project_id: str) -> str:
@@ -359,4 +360,6 @@ def adapter_for(kind: str, settings: Settings):
         return RustFSAdapter(settings)
     if kind == "documents":
         return CouchDBAdapter(settings)
+    if kind == "key-value":
+        return ValkeyAdapter(settings)
     raise ValueError(f"Unsupported capability: {kind}")

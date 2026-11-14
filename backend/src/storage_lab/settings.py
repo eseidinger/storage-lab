@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     couchdb_public_url: str = ""
     couchdb_admin_user: str = ""
     couchdb_admin_password: str = ""
+    valkey_admin_host: str = ""
+    valkey_admin_password: str = ""
+    valkey_public_host: str = "localhost"
+    valkey_public_port: int = 6380
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 

@@ -22,7 +22,7 @@ ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 
 The first playbook creates and starts the VM. The second removes the former Podman containers and systemd services, removes host PostgreSQL, installs Docker and Compose, builds the shared API/worker image, initializes two PostgreSQL 18.7 containers, applies Alembic migrations, and starts the stack. It validates the Caddy configuration and checks the public routes. **Existing host PostgreSQL data, Podman volumes, and PostgreSQL 16 Compose volumes are not migrated.** PostgreSQL 18 uses new named volumes mounted at `/var/lib/postgresql`, matching the official image's data layout. Re-running `app.yml` preserves these PostgreSQL 18 volumes.
 
-If the VM was started with the old forwarding rules, stop it using the PID in `.local/dev-vm/qemu.pid`, run `dev-vm.yml` again, then run `app.yml`. QEMU only reads port forwarding at startup. The current rules forward host 8080 to guest 443, host 9000 to guest 9443, and host 5433 to guest 5433. There is no Keycloak port forward.
+If the VM was started with the old forwarding rules, stop it using the PID in `.local/dev-vm/qemu.pid`, run `dev-vm.yml` again, then run `app.yml`. QEMU only reads port forwarding at startup. The current rules forward host 8080 to guest 443, host 9000 to guest 9443, host 5433 to guest 5433, and host 6380 to guest 6380. There is no Keycloak port forward.
 
 The development inventory uses issuer `https://identity.eseidinger.de/realms/platform`, client ID `storage-lab-portal`, and API audience `storage-lab-api`. The external realm must allow `https://localhost:8080/auth/callback` as a redirect URI, `https://localhost:8080` as a post logout redirect URI, and `https://localhost:8080` as a web origin. See [Keycloak realm configuration](keycloak-realm.md). To use another realm, set both `STORAGE_LAB_OIDC_ISSUER` and `STORAGE_LAB_OIDC_JWKS_URL`; set `STORAGE_LAB_OIDC_CLIENT_ID` and `STORAGE_LAB_OIDC_AUDIENCE` if needed. The deployment does not create or change the external realm.
 
@@ -30,6 +30,7 @@ The development inventory uses issuer `https://identity.eseidinger.de/realms/pla
 | --- | --- |
 | `https://localhost:8080` | Portal and `/api` |
 | `localhost:5433` | Application PostgreSQL with TLS |
+| `localhost:6380` | Valkey with TLS and project-scoped ACLs |
 | `https://localhost:9000` | S3 data gateway; administrative routes blocked |
 | `https://localhost:8080/couchdb/<database>` | Project CouchDB data gateway; global routes blocked |
 | `localhost:2222` | Guest SSH |

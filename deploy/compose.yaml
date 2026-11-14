@@ -79,6 +79,35 @@ services:
       - ./couchdb-single-node.ini:/opt/couchdb/etc/local.d/10-storage-lab.ini:ro
     restart: unless-stopped
 
+  valkey:
+    image: valkey/valkey:9.1.2
+    environment:
+      VALKEY_ADMIN_PASSWORD: ${VALKEY_ADMIN_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - >-
+        if [ ! -f /data/users.acl ]; then
+          printf 'user default off\nuser admin on >%s ~* &* +@all\n' "$$VALKEY_ADMIN_PASSWORD" > /data/users.acl;
+        fi;
+        exec valkey-server --appendonly yes --aclfile /data/users.acl
+          --tls-port 6380 --port 6379 --tls-auth-clients no
+          --tls-cert-file /certs/postgres.crt --tls-key-file /certs/postgres.key
+          --tls-ca-cert-file /certs/postgres.crt
+    group_add: ["999"]
+    ports:
+      - "6380:6380"
+    volumes:
+      - valkey-data:/data
+      - ./certs/postgres.crt:/certs/postgres.crt:ro
+      - ./certs/postgres.key:/certs/postgres.key:ro
+    healthcheck:
+      test: [CMD-SHELL, "valkey-cli --user admin -a \"$$VALKEY_ADMIN_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   migrate:
     <<: *app-image
     profiles: [tools]
@@ -124,6 +153,8 @@ services:
         condition: service_started
       couchdb:
         condition: service_started
+      valkey:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -146,5 +177,6 @@ volumes:
   app-postgres-18-data:
   rustfs-data:
   couchdb-data:
+  valkey-data:
   caddy-data:
   caddy-config:

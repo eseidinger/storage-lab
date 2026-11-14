@@ -102,6 +102,7 @@
     rustfs_access_key: "{{ lookup('password', secret_dir ~ '/rustfs-access-key length=24 chars=ascii_letters,digits') }}"
     rustfs_secret_key: "{{ lookup('password', secret_dir ~ '/rustfs-secret-key length=48 chars=ascii_letters,digits') }}"
     couchdb_admin_password: "{{ lookup('password', secret_dir ~ '/couchdb-admin-password length=40 chars=ascii_letters,digits') }}"
+    valkey_admin_password: "{{ lookup('password', secret_dir ~ '/valkey-admin-password length=40 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default('')) }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
@@ -260,7 +261,7 @@
 
     - name: Start data services
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey]
         chdir: /opt/storage-lab
 
     - name: Apply metadata migrations in the app image
