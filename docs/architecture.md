@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** PostgreSQL, RustFS, CouchDB, and Valkey have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph, Qdrant, OpenSearch, ClickHouse, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** PostgreSQL, RustFS, CouchDB, Valkey, and ClickHouse have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph, Qdrant, OpenSearch, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -14,6 +14,7 @@
 | RustFS | One private bucket and policy per project | Docker internal port 9000; Caddy HTTPS gateway on guest port 9443/host port 9000 |
 | CouchDB | One protected JSON database per project | Docker internal port 5984; Caddy exposes project database paths under `/couchdb/` |
 | Valkey | Project key prefix and per-workload ACL user | Docker internal port 6379 and TLS on guest/host port 6380 |
+| ClickHouse | Project database and role with query limits | Docker internal port 8123; Caddy HTTPS gateway on guest port 9444/host port 9001 |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
 
 Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services are reachable only on the internal Docker network. The metadata database is not forwarded.
@@ -79,6 +80,10 @@ Backup and restore automation is not implemented. Before any non-development dep
 
 The worker grants each workload an ACL user limited to keys beginning with `sl_<project-id>:` and an explicit list of string, expiry, and deletion commands. `ACL SETUSER reset` removes any older grant before applying the current rules; `ACL SAVE` persists issuance and revocation in the Valkey data volume. Deleting a capability scans and unlinks only that project's keys. The default user is disabled. Clients connect to `localhost:6380` using TLS and the server certificate at `/opt/storage-lab/certs/postgres.crt`. The worker uses the internal Docker port and an administrator password. A live cross-project and TLS check is still required before relying on it outside development.
 
+### ClickHouse analytics
+
+The worker creates one database and one role per project. The role grants table access only inside that database and sets a 30-second execution limit, a 1 GiB memory limit, a row-read limit, and four threads. Each workload receives a separate password user with that role as its default. Revocation drops the user; deletion drops the database and role. HTTP clients connect through the Caddy gateway at `https://localhost:9001` with Basic authentication and select their database in the query. The adapter has unit coverage for scoped grants and identifier validation; live privilege and TLS checks remain necessary.
+
 ## Planned capabilities
 
 | Capability | Proposed project resource | Required isolation check |
@@ -86,7 +91,6 @@ The worker grants each workload an ACL user limited to keys beginning with `sl_<
 | `graph` | HugeGraph graph | Graph-scoped roles and API access |
 | `vectors` | Qdrant collection | Collection-restricted token |
 | `search` | OpenSearch index or prefix | Index-scoped role and dashboard isolation |
-| `analytics` | ClickHouse database | Database-scoped role and query limits |
 | `events` | NATS account, streams, consumers | Account, subject, and JetStream isolation |
 
 Each adapter must demonstrate provisioning, project isolation, credential lifecycle, deletion, retry, and restore behavior before being exposed in the portal.

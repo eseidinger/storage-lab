@@ -103,6 +103,7 @@
     rustfs_secret_key: "{{ lookup('password', secret_dir ~ '/rustfs-secret-key length=48 chars=ascii_letters,digits') }}"
     couchdb_admin_password: "{{ lookup('password', secret_dir ~ '/couchdb-admin-password length=40 chars=ascii_letters,digits') }}"
     valkey_admin_password: "{{ lookup('password', secret_dir ~ '/valkey-admin-password length=40 chars=ascii_letters,digits') }}"
+    clickhouse_admin_password: "{{ lookup('password', secret_dir ~ '/clickhouse-admin-password length=40 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default('')) }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
@@ -110,6 +111,7 @@
     oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or (storage_lab_oidc_client_id | default('storage-lab-portal')) }}"
     portal_public_url: "{{ 'https://localhost:8080' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
     s3_public_url: "{{ 'https://localhost:9000' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
+    clickhouse_public_url: "{{ 'https://localhost:9001' if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_clickhouse_host }}"
     portal_gateway_url: "{{ 'https://localhost:443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
     s3_gateway_url: "{{ 'https://localhost:9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
   pre_tasks:
@@ -261,7 +263,7 @@
 
     - name: Start data services
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse]
         chdir: /opt/storage-lab
 
     - name: Apply metadata migrations in the app image

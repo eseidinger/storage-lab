@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     valkey_admin_password: str = ""
     valkey_public_host: str = "localhost"
     valkey_public_port: int = 6380
+    clickhouse_admin_url: str = ""
+    clickhouse_admin_password: str = ""
+    clickhouse_public_url: str = ""
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 

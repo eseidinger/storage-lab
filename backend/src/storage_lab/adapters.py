@@ -18,6 +18,7 @@ from psycopg.conninfo import make_conninfo
 
 from .settings import Settings
 from .valkey_adapter import ValkeyAdapter
+from .clickhouse_adapter import ClickHouseAdapter
 
 
 def resource_name(project_id: str) -> str:
@@ -362,4 +363,6 @@ def adapter_for(kind: str, settings: Settings):
         return CouchDBAdapter(settings)
     if kind == "key-value":
         return ValkeyAdapter(settings)
+    if kind == "analytics":
+        return ClickHouseAdapter(settings)
     raise ValueError(f"Unsupported capability: {kind}")

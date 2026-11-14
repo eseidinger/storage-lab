@@ -108,6 +108,22 @@ services:
       retries: 20
     restart: unless-stopped
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.9.27.3
+    environment:
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: [CMD-SHELL, "clickhouse-client --user admin --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
   migrate:
     <<: *app-image
     profiles: [tools]
@@ -155,6 +171,8 @@ services:
         condition: service_started
       valkey:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -163,6 +181,7 @@ services:
       - "80:80"
       - "443:443"
       - "9443:9443"
+      - "9444:9444"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -178,5 +197,7 @@ volumes:
   rustfs-data:
   couchdb-data:
   valkey-data:
+  clickhouse-data:
+  clickhouse-logs:
   caddy-data:
   caddy-config:

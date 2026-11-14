@@ -133,6 +133,7 @@
           - "'hostfwd=tcp:127.0.0.1:8080-:443' in vm_process.stdout"
           - "'hostfwd=tcp:127.0.0.1:9000-:9443' in vm_process.stdout"
           - "'hostfwd=tcp:127.0.0.1:6380-:6380' in vm_process.stdout"
+          - "'hostfwd=tcp:127.0.0.1:9001-:9444' in vm_process.stdout"
           - "'hostfwd=tcp:127.0.0.1:8081-' not in vm_process.stdout"
         fail_msg: Stop the running development VM and rerun this playbook to activate the HTTPS port forwarding rules.
       when: pidfile_stat.stat.exists and vm_process.rc == 0 and vm_name in vm_process.stdout
@@ -156,7 +157,7 @@
           - -drive
           - "file={{ vm_seed }},if=virtio,media=cdrom,format=raw"
           - -netdev
-          - "user,id=net0,hostfwd=tcp:127.0.0.1:{{ vm_ssh_port }}-:22,hostfwd=tcp:127.0.0.1:8080-:443,hostfwd=tcp:127.0.0.1:5433-:5433,hostfwd=tcp:127.0.0.1:9000-:9443,hostfwd=tcp:127.0.0.1:6380-:6380"
+          - "user,id=net0,hostfwd=tcp:127.0.0.1:{{ vm_ssh_port }}-:22,hostfwd=tcp:127.0.0.1:8080-:443,hostfwd=tcp:127.0.0.1:5433-:5433,hostfwd=tcp:127.0.0.1:9000-:9443,hostfwd=tcp:127.0.0.1:6380-:6380,hostfwd=tcp:127.0.0.1:9001-:9444"
           - -device
           - virtio-net-pci,netdev=net0
           - -display

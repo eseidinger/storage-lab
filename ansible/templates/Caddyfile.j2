@@ -56,3 +56,10 @@ https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_l
         }
     }
 }
+
+https://{{ storage_lab_clickhouse_host | default('localhost') }}{{ ':9444' if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' else '' }} {
+{% if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' %}
+    tls internal
+{% endif %}
+    reverse_proxy clickhouse:8123
+}

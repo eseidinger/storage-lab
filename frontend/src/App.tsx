@@ -15,6 +15,7 @@ const kinds = {
   'object-storage': { label: 'Object storage', description: 'A private S3 bucket for files and artifacts.', icon: IconServer },
   documents: { label: 'Documents', description: 'A private CouchDB database for JSON documents.', icon: IconFileText },
   'key-value': { label: 'Key-value', description: 'A private Valkey key namespace.', icon: IconDatabase },
+  analytics: { label: 'Analytics', description: 'A private ClickHouse database.', icon: IconDatabase },
 } as const
 type Kind = keyof typeof kinds
 const notifyError = (error: unknown) => notifications.show({ color: 'red', title: 'Request failed', message: error instanceof Error ? error.message : String(error) })
