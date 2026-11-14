@@ -52,4 +52,5 @@ The live verification scripts under `backend/scripts/` exercise service isolatio
 - [Implementation status and remaining plan](docs/implementation-plan.md)
 - [Technology decisions](docs/technology-decisions.md)
 - [Local development VM](docs/development-vm.md)
+- [Keycloak realm configuration](docs/keycloak-realm.md)
 - [Original German concept](README_DE.md)

@@ -23,6 +23,8 @@ ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 
 The first playbook downloads the cloud image, creates an independent QCOW2 disk, injects a dedicated SSH key with cloud-init, starts QEMU, and waits for SSH. `app.yml` imports `deploy.yml`, then configures data services, runs Alembic migrations, installs API and worker systemd units, builds the portal, and deploys Nginx. Re-running the playbooks preserves the VM disk, databases, and RustFS/CouchDB volumes. The default OIDC values come from `ansible/inventory/dev.yml`: issuer `https://identity.eseidinger.de/realms/platform`, client `storage-lab-portal`, and API audience `storage-lab-api`.
 
+For the required settings of an existing external realm, see [Keycloak realm configuration](keycloak-realm.md).
+
 | Host URL or port | Service |
 | --- | --- |
 | `http://localhost:8080` | Portal and `/api` |
@@ -33,6 +35,8 @@ The first playbook downloads the cloud image, creates an independent QCOW2 disk,
 | `localhost:2222` | Guest SSH |
 
 To use the optional local Keycloak realm, run `STORAGE_LAB_USE_LOCAL_KEYCLOAK=true ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml`. Its realm is `storage-lab`, portal client is `storage-lab-portal`, API audience is `storage-lab-api`, and sample user is `lab`. Read the generated password from `.local/deploy/keycloak-user-password`. The local admin password is in `.local/deploy/keycloak-admin-password`. These files are private development secrets and must not be committed. Realm JSON import applies only when the local realm is first created; later changes need a Keycloak admin update or a fresh development realm.
+
+### Platform Admin bootstrap
 
 Global Platform Admin grants are stored in the metadata database, keyed by the user's OIDC issuer and subject. After deploying the schema migration, bootstrap the first Platform Admin from inside the VM, replacing `KEYCLOAK_USER_ID` with the user's Keycloak `sub` claim (the user ID in the Keycloak admin console):
 
