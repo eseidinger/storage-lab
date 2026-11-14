@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     couchdb_admin_user: str = ""
     couchdb_admin_password: str = ""
     worker_poll_seconds: float = 2.0
+    ui_dist: str = ""
 
 
 @lru_cache

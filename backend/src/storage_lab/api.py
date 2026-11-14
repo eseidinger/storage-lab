@@ -32,6 +32,7 @@ from .schemas import (
     ProjectView,
 )
 from .settings import get_settings
+from .web import PortalFiles
 
 
 app = FastAPI(title="Storage Lab API", version="0.1.0")
@@ -673,3 +674,7 @@ def revoke_credential(
     add_audit(session, project_id, principal.identity, "credential.revoke", credential_id)
     session.commit()
     return operation_view(operation)
+
+
+if get_settings().ui_dist:
+    app.mount("/", PortalFiles(directory=get_settings().ui_dist, html=True), name="portal")
