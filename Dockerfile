@@ -8,6 +8,8 @@ ARG VITE_OIDC_AUTHORITY
 ARG VITE_OIDC_CLIENT_ID=storage-lab-portal
 RUN npm run build
 
+FROM natsio/nats-box:0.20.2 AS nats-tools
+
 FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,6 +23,7 @@ COPY backend/migrations/ ./migrations/
 COPY backend/scripts/ ./scripts/
 COPY backend/alembic.ini ./alembic.ini
 COPY --from=frontend-build /build/frontend/dist/ ./frontend/
+COPY --from=nats-tools /usr/local/bin/nats /usr/local/bin/nats
 USER storage-lab
 EXPOSE 8000
 ENV PYTHONPATH=/app/src

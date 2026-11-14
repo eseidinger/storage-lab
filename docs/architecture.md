@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** PostgreSQL, RustFS, CouchDB, Valkey, ClickHouse, Qdrant, OpenSearch, and HugeGraph have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. NATS with JetStream remains planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** PostgreSQL, RustFS, CouchDB, Valkey, ClickHouse, Qdrant, OpenSearch, HugeGraph, and NATS with JetStream have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -18,6 +18,7 @@
 | Qdrant | Project collection and scoped JWT | Docker internal port 6333; Caddy HTTPS gateway on guest port 9445/host port 9003 |
 | OpenSearch | Project index and role; separate Dashboards tenant | Docker internal port 9200; local Caddy HTTPS gateways on guest ports 9446/9447 |
 | HugeGraph | Project graph and graph-scoped group/target | Docker internal port 8080; local Caddy HTTPS gateway on guest port 9448 |
+| NATS | Project account and JetStream stream | Native TLS on guest and host port 4222 |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
 
 Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services are reachable only on the internal Docker network. The metadata database is not forwarded.
@@ -71,7 +72,7 @@ The Caddy prefix is `/api`; the FastAPI routes below are relative to that prefix
 | `GET /projects/{id}/documents?skip=...`, `GET /projects/{id}/documents/{doc_id}` | List and read CouchDB documents |
 | `PUT /projects/{id}/documents/{doc_id}`, `DELETE /projects/{id}/documents/{doc_id}?rev=...` | Create, update, and delete JSON documents |
 
-Asynchronous mutations return an operation ID; the portal polls until success or failure. The capability kinds currently accepted are `postgresql`, `object-storage`, and `documents`.
+Asynchronous mutations return an operation ID; the portal polls until success or failure. The capability kinds currently accepted are `postgresql`, `object-storage`, `documents`, `key-value`, `analytics`, `vectors`, `search`, `graph`, and `events`.
 
 ## Operations and recovery
 
@@ -99,10 +100,6 @@ The worker creates a project index, Dashboard tenant, and role restricted to tha
 
 The worker creates a RocksDB-backed graph per project with authentication enabled, a graph-specific target, and a group granted read, write, delete, and execute permissions on that target. Each workload user belongs only to that group. Revocation deletes its association and user; capability deletion removes grants, target, group, and graph. The local Caddy gateway at `https://localhost:9007` allows only paths beneath `/graphspaces/DEFAULT/graphs/sl_<project-id>` and denies HugeGraph administration endpoints. HugeGraph uses HTTP Basic authentication behind that TLS gateway. A live two-project access check remains necessary.
 
-## Planned capabilities
+### NATS events
 
-| Capability | Proposed project resource | Required isolation check |
-| --- | --- | --- |
-| `events` | NATS account, streams, consumers | Account, subject, and JetStream isolation |
-
-Each adapter must demonstrate provisioning, project isolation, credential lifecycle, deletion, retry, and restore behavior before being exposed in the portal.
+The worker gives each project a separate NATS account and a file-backed JetStream stream for subjects beginning with `sl_<project-id>.`. It renders bcrypt password users in a persistent configuration file and asks the NATS system account to reload it after issuance or revocation. A deployment initialization job creates the initial configuration before the server starts. The native TLS endpoint is `tls://localhost:4222`; clients must trust the VM certificate. Deleting the capability removes its stream and account. A live two-account isolation and reload check is still needed.

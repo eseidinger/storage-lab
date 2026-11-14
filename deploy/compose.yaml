@@ -175,6 +175,27 @@ services:
       retries: 40
     restart: unless-stopped
 
+  nats-init:
+    <<: *app-image
+    profiles: [tools]
+    env_file: ./worker.env
+    command: [python, -m, storage_lab.nats_adapter]
+    volumes:
+      - ./nats-config:/nats-config
+
+  nats:
+    image: nats:2.14.10-alpine
+    command: [-c, /etc/nats/nats.conf]
+    ports:
+      - "4222:4222"
+    group_add: ["999"]
+    volumes:
+      - ./nats-config:/etc/nats:ro
+      - nats-data:/data
+      - ./certs/postgres.crt:/certs/postgres.crt:ro
+      - ./certs/postgres.key:/certs/postgres.key:ro
+    restart: unless-stopped
+
   migrate:
     <<: *app-image
     profiles: [tools]
@@ -211,6 +232,8 @@ services:
     command: [python, -m, storage_lab.worker]
     volumes:
       - ./caddy-ca:/caddy-ca:ro
+      - ./certs/postgres.crt:/certs/postgres.crt:ro
+      - ./nats-config:/nats-config
     depends_on:
       metadata-db:
         condition: service_healthy
@@ -230,6 +253,8 @@ services:
         condition: service_started
       hugegraph:
         condition: service_healthy
+      nats:
+        condition: service_started
     restart: unless-stopped
 
   caddy:
@@ -263,5 +288,6 @@ volumes:
   qdrant-data:
   opensearch-data:
   hugegraph-data:
+  nats-data:
   caddy-data:
   caddy-config:

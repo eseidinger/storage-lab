@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     hugegraph_admin_url: str = ""
     hugegraph_admin_password: str = ""
     hugegraph_public_url: str = ""
+    nats_config_dir: str = ""
+    nats_sys_password: str = ""
+    nats_admin_host: str = "nats"
+    nats_public_url: str = "tls://localhost:4222"
+    nats_tls_ca: str = ""
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 

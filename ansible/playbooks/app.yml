@@ -107,6 +107,7 @@
     qdrant_api_key: "{{ lookup('password', secret_dir ~ '/qdrant-api-key length=64 chars=ascii_letters,digits') }}"
     opensearch_admin_password: "A!a1{{ lookup('password', secret_dir ~ '/opensearch-admin-password length=40 chars=ascii_letters,digits') }}"
     hugegraph_admin_password: "{{ lookup('password', secret_dir ~ '/hugegraph-admin-password length=40 chars=ascii_letters,digits') }}"
+    nats_sys_password: "{{ lookup('password', secret_dir ~ '/nats-sys-password length=40 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default('')) }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
@@ -173,6 +174,14 @@
         - /opt/storage-lab/image
         - /opt/storage-lab/certs
         - /opt/storage-lab/caddy-ca
+
+    - name: Create writable NATS configuration directory
+      ansible.builtin.file:
+        path: /opt/storage-lab/nats-config
+        state: directory
+        owner: '10001'
+        group: '10001'
+        mode: '0755'
 
     - name: Copy Compose deployment files
       ansible.builtin.copy:
@@ -277,9 +286,14 @@
         argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, build, app]
         chdir: /opt/storage-lab
 
+    - name: Initialize NATS account configuration
+      ansible.builtin.command:
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, run, --rm, --no-deps, nats-init]
+        chdir: /opt/storage-lab
+
     - name: Start data services
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards, hugegraph]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards, hugegraph, nats]
         chdir: /opt/storage-lab
 
     - name: Apply metadata migrations in the app image
