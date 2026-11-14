@@ -19,6 +19,7 @@ from psycopg.conninfo import make_conninfo
 from .settings import Settings
 from .valkey_adapter import ValkeyAdapter
 from .clickhouse_adapter import ClickHouseAdapter
+from .qdrant_adapter import QdrantAdapter
 
 
 def resource_name(project_id: str) -> str:
@@ -365,4 +366,6 @@ def adapter_for(kind: str, settings: Settings):
         return ValkeyAdapter(settings)
     if kind == "analytics":
         return ClickHouseAdapter(settings)
+    if kind == "vectors":
+        return QdrantAdapter(settings)
     raise ValueError(f"Unsupported capability: {kind}")

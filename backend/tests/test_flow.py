@@ -195,3 +195,19 @@ def test_failed_operation_can_be_retried_without_duplicate_resource(environment,
     assert run_once(factory, settings)
     assert client.get(f"/operations/{operation['id']}").json()["state"] == "succeeded"
     assert adapter.resources == {project_id}
+
+
+def test_worker_generated_secret_can_be_claimed_once(environment, monkeypatch):
+    client, factory, active, adapter, settings = environment
+    project_id = client.post("/projects", json={"name": "Vectors"}).json()["id"]
+    client.put(f"/projects/{project_id}/capabilities/vectors")
+    assert run_once(factory, settings)
+    monkeypatch.setattr(adapter, "issue", lambda *args: "signed-token")
+    issued = client.post(f"/projects/{project_id}/capabilities/vectors/credentials", json={"label": "app"}).json()
+    assert issued["secret"] is None
+    credential_id = issued["credential"]["id"]
+    secret_url = f"/projects/{project_id}/capabilities/vectors/credentials/{credential_id}/secret"
+    assert client.post(secret_url).status_code == 409
+    assert run_once(factory, settings)
+    assert client.post(secret_url).json() == {"secret": "signed-token"}
+    assert client.post(secret_url).status_code == 409

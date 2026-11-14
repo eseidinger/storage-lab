@@ -36,7 +36,7 @@ from .web import PortalFiles
 
 
 app = FastAPI(title="Storage Lab API", version="0.1.0")
-SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents", "key-value", "analytics"}
+SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents", "key-value", "analytics", "vectors"}
 
 
 def is_platform_admin(session: Session, principal: Principal) -> bool:
@@ -82,7 +82,9 @@ def capability_view(capability: Capability) -> CapabilityView:
 
 
 def credential_view(credential: Credential) -> CredentialView:
-    return CredentialView.model_validate(credential, from_attributes=True)
+    return CredentialView.model_validate(credential, from_attributes=True).model_copy(
+        update={"delivery_pending": credential.deliverable_secret is not None}
+    )
 
 
 def latest_operation(session: Session, project_id: str, kind: str, action: str) -> Operation | None:
@@ -638,7 +640,28 @@ def issue_credential(
     session.add_all([credential, operation])
     add_audit(session, project_id, principal.identity, "credential.issue", credential_id)
     session.commit()
-    return IssuedCredential(credential=credential_view(credential), secret=secret, operation=operation_view(operation))
+    return IssuedCredential(credential=credential_view(credential), secret=None if kind == "vectors" else secret, operation=operation_view(operation))
+
+
+@app.post("/projects/{project_id}/capabilities/{kind}/credentials/{credential_id}/secret")
+def claim_credential_secret(
+    project_id: str,
+    kind: str,
+    credential_id: str,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    membership(session, project_id, principal, admin=True)
+    credential = session.get(Credential, credential_id, with_for_update=True)
+    if credential is None or credential.project_id != project_id or credential.capability_kind != kind:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Credential not found")
+    if credential.state != "ready" or credential.deliverable_secret is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Credential secret is not available")
+    secret = Fernet(get_settings().credential_key).decrypt(credential.deliverable_secret.encode()).decode()
+    credential.deliverable_secret = None
+    add_audit(session, project_id, principal.identity, "credential.claim", credential_id)
+    session.commit()
+    return {"secret": secret}
 
 
 @app.delete("/projects/{project_id}/capabilities/{kind}/credentials/{credential_id}", response_model=OperationView, status_code=202)

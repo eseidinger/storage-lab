@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** PostgreSQL, RustFS, CouchDB, Valkey, and ClickHouse have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph, Qdrant, OpenSearch, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** PostgreSQL, RustFS, CouchDB, Valkey, ClickHouse, and Qdrant have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph, OpenSearch, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -15,6 +15,7 @@
 | CouchDB | One protected JSON database per project | Docker internal port 5984; Caddy exposes project database paths under `/couchdb/` |
 | Valkey | Project key prefix and per-workload ACL user | Docker internal port 6379 and TLS on guest/host port 6380 |
 | ClickHouse | Project database and role with query limits | Docker internal port 8123; Caddy HTTPS gateway on guest port 9444/host port 9001 |
+| Qdrant | Project collection and scoped JWT | Docker internal port 6333; Caddy HTTPS gateway on guest port 9445/host port 9003 |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
 
 Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services are reachable only on the internal Docker network. The metadata database is not forwarded.
@@ -84,12 +85,15 @@ The worker grants each workload an ACL user limited to keys beginning with `sl_<
 
 The worker creates one database and one role per project. The role grants table access only inside that database and sets a 30-second execution limit, a 1 GiB memory limit, a row-read limit, and four threads. Each workload receives a separate password user with that role as its default. Revocation drops the user; deletion drops the database and role. HTTP clients connect through the Caddy gateway at `https://localhost:9001` with Basic authentication and select their database in the query. The adapter has unit coverage for scoped grants and identifier validation; live privilege and TLS checks remain necessary.
 
+### Qdrant vectors
+
+The worker creates one 1536-dimensional cosine collection per project. It signs a collection-scoped read/write JWT with the Qdrant admin key and stores a matching point in an internal credential registry. The JWT's `value_exists` claim requires that point; revocation deletes it. The registry is outside the JWT's collection access. Because the worker alone holds the signing key, the API returns no secret from the initial issuance request. After the operation succeeds, a project administrator claims the token once through the portal or API; it is encrypted in metadata until claimed. Clients connect to `https://localhost:9003` and send the token in the `api-key` header. Collection schema is currently fixed at 1536 dimensions; add a project-specific dimension setting before using other embedding models. A live cross-project and revocation check remains necessary.
+
 ## Planned capabilities
 
 | Capability | Proposed project resource | Required isolation check |
 | --- | --- | --- |
 | `graph` | HugeGraph graph | Graph-scoped roles and API access |
-| `vectors` | Qdrant collection | Collection-restricted token |
 | `search` | OpenSearch index or prefix | Index-scoped role and dashboard isolation |
 | `events` | NATS account, streams, consumers | Account, subject, and JetStream isolation |
 

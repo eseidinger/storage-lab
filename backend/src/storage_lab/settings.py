@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     clickhouse_admin_url: str = ""
     clickhouse_admin_password: str = ""
     clickhouse_public_url: str = ""
+    qdrant_admin_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_public_url: str = ""
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 

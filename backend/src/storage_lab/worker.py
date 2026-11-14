@@ -104,7 +104,7 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
                 username = credential.username
                 access = credential.access
             secret = Fernet(settings.credential_key).decrypt(payload["encrypted_secret"].encode()).decode()
-            adapter.issue(project_id, username, secret, access)
+            issued_secret = adapter.issue(project_id, username, secret, access)
         elif action == "revoke_credential":
             with factory() as session:
                 credential = session.get(Credential, payload["credential_id"])
@@ -141,6 +141,8 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
                 credential = session.get(Credential, payload["credential_id"])
                 if credential is not None:
                     credential.state = "ready"
+                    if issued_secret is not None:
+                        credential.deliverable_secret = Fernet(settings.credential_key).encrypt(issued_secret.encode()).decode()
             elif action == "revoke_credential":
                 credential = session.get(Credential, payload["credential_id"])
                 if credential is not None:

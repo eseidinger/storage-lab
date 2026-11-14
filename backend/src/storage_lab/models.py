@@ -87,6 +87,7 @@ class Credential(Base):
     access: Mapped[str] = mapped_column(String(20), nullable=False, default="runtime")
     username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     state: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    deliverable_secret: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

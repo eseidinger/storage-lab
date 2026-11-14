@@ -124,6 +124,15 @@ services:
       retries: 30
     restart: unless-stopped
 
+  qdrant:
+    image: qdrant/qdrant:v1.20.1
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+      QDRANT__SERVICE__JWT_RBAC: "true"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
   migrate:
     <<: *app-image
     profiles: [tools]
@@ -173,6 +182,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     restart: unless-stopped
 
   caddy:
@@ -182,6 +193,7 @@ services:
       - "443:443"
       - "9443:9443"
       - "9444:9444"
+      - "9445:9445"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -199,5 +211,6 @@ volumes:
   valkey-data:
   clickhouse-data:
   clickhouse-logs:
+  qdrant-data:
   caddy-data:
   caddy-config:

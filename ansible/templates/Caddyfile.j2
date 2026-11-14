@@ -63,3 +63,16 @@ https://{{ storage_lab_clickhouse_host | default('localhost') }}{{ ':9444' if (s
 {% endif %}
     reverse_proxy clickhouse:8123
 }
+
+https://{{ storage_lab_qdrant_host | default('localhost') }}{{ ':9445' if (storage_lab_qdrant_host | default('localhost')) == 'localhost' else '' }} {
+{% if (storage_lab_qdrant_host | default('localhost')) == 'localhost' %}
+    tls internal
+{% endif %}
+    @qdrant_dashboard path /dashboard*
+    handle @qdrant_dashboard {
+        respond 403
+    }
+    handle {
+        reverse_proxy qdrant:6333
+    }
+}

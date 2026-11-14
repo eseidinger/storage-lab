@@ -67,12 +67,13 @@ class CredentialView(BaseModel):
     access: str
     username: str
     state: str
+    delivery_pending: bool = False
     created_at: datetime
 
 
 class IssuedCredential(BaseModel):
     credential: CredentialView
-    secret: str
+    secret: str | None
     operation: OperationView
 
 
