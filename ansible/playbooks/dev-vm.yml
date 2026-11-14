@@ -145,7 +145,7 @@
           - -drive
           - "file={{ vm_seed }},if=virtio,media=cdrom,format=raw"
           - -netdev
-          - "user,id=net0,hostfwd=tcp:127.0.0.1:{{ vm_ssh_port }}-:22,hostfwd=tcp:127.0.0.1:8080-:80,hostfwd=tcp:127.0.0.1:8081-:8081,hostfwd=tcp:127.0.0.1:5433-:5433,hostfwd=tcp:127.0.0.1:9000-:9002"
+          - "user,id=net0,hostfwd=tcp:127.0.0.1:{{ vm_ssh_port }}-:22,hostfwd=tcp:127.0.0.1:8080-:443,hostfwd=tcp:127.0.0.1:8081-:9444,hostfwd=tcp:127.0.0.1:5433-:5433,hostfwd=tcp:127.0.0.1:9000-:9443"
           - -device
           - virtio-net-pci,netdev=net0
           - -display

@@ -18,10 +18,12 @@
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     use_local_keycloak: "{{ lookup('env', 'STORAGE_LAB_USE_LOCAL_KEYCLOAK') | default('false', true) | bool }}"
     external_oidc_issuer: "{{ '' if use_local_keycloak else (lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default(''))) }}"
-    oidc_issuer: "{{ external_oidc_issuer or 'http://localhost:8081/realms/storage-lab' }}"
+    oidc_issuer: "{{ external_oidc_issuer or 'https://localhost:8081/realms/storage-lab' }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
-    oidc_jwks_url: "{{ 'http://127.0.0.1:8081/realms/storage-lab/protocol/openid-connect/certs' if use_local_keycloak or not external_oidc_issuer else (lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or (storage_lab_oidc_jwks_url | default(''))) }}"
+    oidc_jwks_url: "{{ 'http://127.0.0.1:8082/realms/storage-lab/protocol/openid-connect/certs' if use_local_keycloak or not external_oidc_issuer else (lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or (storage_lab_oidc_jwks_url | default(''))) }}"
     oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or (storage_lab_oidc_client_id | default('storage-lab-portal')) }}"
+    portal_public_url: "{{ 'https://localhost:8080' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
+    s3_public_url: "{{ 'https://localhost:9000' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
   pre_tasks:
     - name: Validate external OIDC settings
       ansible.builtin.assert:
@@ -208,14 +210,14 @@
         - { path: /opt/storage-lab/backend/src, mode: '0755' }
         - { path: /opt/storage-lab/backend/migrations, mode: '0755' }
         - { path: /opt/storage-lab/backend/scripts, mode: '0755' }
-        - { path: /var/www/storage-lab, mode: '0755' }
+        - { path: /opt/storage-lab/image, mode: '0755' }
 
     - name: Copy backend source
       ansible.builtin.copy:
         src: "{{ source_root }}/backend/src/"
         dest: /opt/storage-lab/backend/src/
         mode: preserve
-      notify: Restart API and worker
+      notify: Restart worker
 
     - name: Copy database migrations
       ansible.builtin.copy:
@@ -250,7 +252,6 @@
         group: storage-lab-api
         mode: '0640'
       no_log: true
-      notify: Restart API and worker
 
     - name: Configure worker environment
       ansible.builtin.template:
@@ -260,7 +261,7 @@
         group: storage-lab-worker
         mode: '0640'
       no_log: true
-      notify: Restart API and worker
+      notify: Restart worker
 
     - name: Apply metadata migrations
       ansible.builtin.command:
@@ -293,13 +294,12 @@
       become_user: postgres
       changed_when: false
 
-    - name: Install API and worker systemd units
+    - name: Install worker systemd unit
       ansible.builtin.template:
-        src: "../templates/{{ item }}.service.j2"
-        dest: "/etc/systemd/system/{{ item }}.service"
+        src: ../templates/storage-lab-worker.service.j2
+        dest: /etc/systemd/system/storage-lab-worker.service
         mode: '0644'
-      loop: [storage-lab-api, storage-lab-worker]
-      notify: Restart API and worker
+      notify: Restart worker
 
     - name: Check RustFS persistent volume
       ansible.builtin.command:
@@ -440,6 +440,17 @@
       changed_when: false
       when: not external_oidc_issuer
 
+    - name: Stop local Keycloak before replacing its network settings
+      ansible.builtin.systemd_service:
+        name: storage-lab-keycloak
+        state: stopped
+      when: not external_oidc_issuer and keycloak_container.rc == 0
+
+    - name: Remove old local Keycloak container
+      ansible.builtin.command:
+        argv: [podman, rm, storage-lab-keycloak]
+      when: not external_oidc_issuer and keycloak_container.rc == 0
+
     - name: Create local development Keycloak container
       ansible.builtin.command:
         argv:
@@ -450,7 +461,7 @@
           - --memory
           - 2g
           - -p
-          - 8081:8080
+          - 127.0.0.1:8082:8080
           - -v
           - storage-lab-keycloak-data:/opt/keycloak/data
           - -v
@@ -460,11 +471,12 @@
           - -e
           - "KC_BOOTSTRAP_ADMIN_PASSWORD={{ keycloak_admin_password }}"
           - -e
-          - KC_HOSTNAME=http://localhost:8081
+          - KC_HOSTNAME=https://localhost:8081
+          - KC_PROXY_HEADERS=xforwarded
           - quay.io/keycloak/keycloak:26.8.2
           - start-dev
           - --import-realm
-      when: not external_oidc_issuer and keycloak_container.rc != 0
+      when: not external_oidc_issuer
       no_log: true
 
     - name: Install local Keycloak systemd unit
@@ -515,7 +527,7 @@
         state: started
         enabled: true
         daemon_reload: true
-      loop: [storage-lab-rustfs, storage-lab-couchdb, storage-lab-api, storage-lab-worker]
+      loop: [storage-lab-rustfs, storage-lab-couchdb, storage-lab-worker]
 
     - name: Wait for CouchDB health
       ansible.builtin.uri:
@@ -529,54 +541,190 @@
     - name: Apply backend restarts before configuring the public gateway
       ansible.builtin.meta: flush_handlers
 
-    - name: Build portal assets on the controller
+    - name: Check previous API unit
+      ansible.builtin.stat:
+        path: /etc/systemd/system/storage-lab-api.service
+      register: legacy_api_unit
+
+    - name: Stop previous API service when present
+      ansible.builtin.systemd_service:
+        name: storage-lab-api
+        state: stopped
+        enabled: false
+      when: legacy_api_unit.stat.exists
+
+    - name: Remove previous API unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/storage-lab-api.service
+        state: absent
+
+    - name: Remove previous Nginx package and configuration
+      ansible.builtin.apt:
+        name: [nginx, nginx-common, nginx-core]
+        state: absent
+        purge: true
+
+    - name: Archive app image sources on the controller
       ansible.builtin.command:
-        argv: [npm, run, build]
-        chdir: "{{ source_root }}/frontend"
-      environment:
-        VITE_API_URL: /api
-        VITE_OIDC_AUTHORITY: "{{ oidc_issuer }}"
-        VITE_OIDC_CLIENT_ID: "{{ oidc_client_id }}"
+        argv:
+          - tar
+          - -czf
+          - "{{ secret_dir }}/app-build.tar.gz"
+          - --exclude=frontend/node_modules
+          - --exclude=frontend/dist
+          - -C
+          - "{{ source_root }}"
+          - Dockerfile
+          - .dockerignore
+          - backend/requirements.txt
+          - backend/src
+          - frontend
       delegate_to: localhost
       become: false
       changed_when: false
 
-    - name: Deploy portal assets
-      ansible.builtin.copy:
-        src: "{{ source_root }}/frontend/dist/"
-        dest: /var/www/storage-lab/
-        mode: preserve
+    - name: Copy app image sources to the guest
+      ansible.builtin.unarchive:
+        src: "{{ secret_dir }}/app-build.tar.gz"
+        dest: /opt/storage-lab/image
 
-    - name: Configure portal and S3 gateway
-      ansible.builtin.template:
-        src: ../templates/storage-lab.nginx.j2
-        dest: /etc/nginx/sites-available/storage-lab
-        mode: '0644'
-      notify: Reload Nginx
-
-    - name: Validate Nginx configuration
+    - name: Build API and portal image
       ansible.builtin.command:
-        argv: [nginx, -t]
+        argv:
+          - podman
+          - build
+          - --tag
+          - localhost/storage-lab-app:latest
+          - --build-arg
+          - VITE_API_URL=/api
+          - --build-arg
+          - "VITE_OIDC_AUTHORITY={{ oidc_issuer }}"
+          - --build-arg
+          - "VITE_OIDC_CLIENT_ID={{ oidc_client_id }}"
+          - /opt/storage-lab/image
+      changed_when: true
+
+    - name: Check existing app container
+      ansible.builtin.command:
+        argv: [podman, container, exists, storage-lab-app]
+      register: app_container
+      failed_when: false
       changed_when: false
 
-    - name: Enable Storage Lab Nginx site
-      ansible.builtin.file:
-        src: /etc/nginx/sites-available/storage-lab
-        dest: /etc/nginx/sites-enabled/storage-lab
-        state: link
-      notify: Reload Nginx
+    - name: Stop existing app service
+      ansible.builtin.systemd_service:
+        name: storage-lab-app
+        state: stopped
+      when: app_container.rc == 0
 
-    - name: Disable default Nginx site
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      notify: Reload Nginx
+    - name: Replace existing app container
+      ansible.builtin.command:
+        argv: [podman, rm, storage-lab-app]
+      when: app_container.rc == 0
 
-    - name: Start Nginx
-      ansible.builtin.service:
-        name: nginx
+    - name: Create app container
+      ansible.builtin.command:
+        argv:
+          - podman
+          - create
+          - --name
+          - storage-lab-app
+          - --network
+          - host
+          - --read-only
+          - --tmpfs
+          - /tmp:rw,nosuid,nodev,size=256m
+          - --env-file
+          - /etc/storage-lab/api.env
+          - localhost/storage-lab-app:latest
+
+    - name: Install app systemd unit
+      ansible.builtin.copy:
+        src: ../files/storage-lab-app.service
+        dest: /etc/systemd/system/storage-lab-app.service
+        mode: '0644'
+
+    - name: Start app container
+      ansible.builtin.systemd_service:
+        name: storage-lab-app
         state: started
         enabled: true
+        daemon_reload: true
+
+    - name: Wait for app health
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/health
+        status_code: 200
+      register: app_health
+      until: app_health.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Check Caddy data volume
+      ansible.builtin.command:
+        argv: [podman, volume, exists, storage-lab-caddy-data]
+      register: caddy_volume
+      failed_when: false
+      changed_when: false
+
+    - name: Create Caddy data volume
+      ansible.builtin.command:
+        argv: [podman, volume, create, storage-lab-caddy-data]
+      when: caddy_volume.rc != 0
+
+    - name: Render Caddy gateway configuration
+      ansible.builtin.template:
+        src: ../templates/Caddyfile.j2
+        dest: /etc/storage-lab/Caddyfile
+        mode: '0644'
+      register: caddy_config
+
+    - name: Check Caddy container
+      ansible.builtin.command:
+        argv: [podman, container, exists, storage-lab-caddy]
+      register: caddy_container
+      failed_when: false
+      changed_when: false
+
+    - name: Create Caddy container
+      ansible.builtin.command:
+        argv:
+          - podman
+          - create
+          - --name
+          - storage-lab-caddy
+          - --network
+          - host
+          - -v
+          - /etc/storage-lab/Caddyfile:/etc/caddy/Caddyfile:ro
+          - -v
+          - storage-lab-caddy-data:/data
+          - docker.io/library/caddy:2.10.2
+      when: caddy_container.rc != 0
+
+    - name: Validate Caddy configuration
+      ansible.builtin.command:
+        argv: [podman, run, --rm, -v, '/etc/storage-lab/Caddyfile:/etc/caddy/Caddyfile:ro', docker.io/library/caddy:2.10.2, validate, --config, /etc/caddy/Caddyfile]
+      changed_when: false
+
+    - name: Install Caddy systemd unit
+      ansible.builtin.copy:
+        src: ../files/storage-lab-caddy.service
+        dest: /etc/systemd/system/storage-lab-caddy.service
+        mode: '0644'
+
+    - name: Start Caddy
+      ansible.builtin.systemd_service:
+        name: storage-lab-caddy
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Reload Caddy after configuration changes
+      ansible.builtin.command:
+        argv: [podman, exec, storage-lab-caddy, caddy, reload, --config, /etc/caddy/Caddyfile]
+      when: caddy_config.changed and caddy_container.rc == 0
+      changed_when: true
 
   handlers:
     - name: Restart metadata PostgreSQL
@@ -587,14 +735,8 @@
       ansible.builtin.command:
         argv: [pg_ctlcluster, '16', storage_lab_app, restart]
 
-    - name: Restart API and worker
+    - name: Restart worker
       ansible.builtin.systemd_service:
-        name: "{{ item }}"
+        name: storage-lab-worker
         state: restarted
         daemon_reload: true
-      loop: [storage-lab-api, storage-lab-worker]
-
-    - name: Reload Nginx
-      ansible.builtin.service:
-        name: nginx
-        state: reloaded

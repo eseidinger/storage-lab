@@ -1,0 +1,57 @@
+https://{{ storage_lab_portal_host | default('localhost') }}{{ ':443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else '' }} {
+{% if (storage_lab_portal_host | default('localhost')) == 'localhost' %}
+    tls internal
+{% endif %}
+
+    @couch_all_docs path_regexp ^/couchdb/sl_[0-9a-f]{32}/_all_docs(?:/|$)
+    @couch_private path_regexp ^/couchdb/sl_[0-9a-f]{32}/_
+    @couch_project path_regexp ^/couchdb/sl_[0-9a-f]{32}(?:/|$)
+
+    route {
+        handle @couch_all_docs {
+            uri strip_prefix /couchdb
+            reverse_proxy 127.0.0.1:5984
+        }
+        handle @couch_private {
+            respond 403
+        }
+        handle @couch_project {
+            uri strip_prefix /couchdb
+            reverse_proxy 127.0.0.1:5984
+        }
+        handle /couchdb* {
+            respond 403
+        }
+        handle_path /api/* {
+            reverse_proxy 127.0.0.1:8000 {
+                header_up X-Storage-Lab-API true
+            }
+        }
+        handle {
+            reverse_proxy 127.0.0.1:8000
+        }
+    }
+}
+
+https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else '' }} {
+{% if (storage_lab_s3_host | default('localhost')) == 'localhost' %}
+    tls internal
+{% endif %}
+
+    @s3_private path_regexp ^/rustfs/(admin|rpc|peer|console)(?:/|$)
+    route {
+        handle @s3_private {
+            respond 403
+        }
+        handle {
+            reverse_proxy 127.0.0.1:9000
+        }
+    }
+}
+{% if use_local_keycloak %}
+
+https://localhost:9444 {
+    tls internal
+    reverse_proxy 127.0.0.1:8082
+}
+{% endif %}

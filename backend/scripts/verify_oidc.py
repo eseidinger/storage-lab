@@ -13,8 +13,8 @@ import jwt
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRETS = ROOT / ".local" / "deploy"
-KEYCLOAK = "http://127.0.0.1:8081"
-API = "http://127.0.0.1:8080/api"
+KEYCLOAK = "https://localhost:8081"
+API = "https://localhost:8080/api"
 
 
 def main() -> None:
@@ -56,7 +56,7 @@ def main() -> None:
                 raise RuntimeError(f"Keycloak token request failed: {token_response.status_code} {token_response.text}")
             token = token_response.json()["access_token"]
             claims = jwt.decode(token, options={"verify_signature": False})
-            assert claims["iss"] == "http://localhost:8081/realms/storage-lab"
+            assert claims["iss"] == "https://localhost:8081/realms/storage-lab"
             assert "storage-lab-api" in claims["aud"]
             response = client.get(f"{API}/projects", headers={"Authorization": f"Bearer {token}"})
             assert response.status_code == 200, response.text

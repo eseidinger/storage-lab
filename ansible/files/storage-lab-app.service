@@ -1,0 +1,14 @@
+[Unit]
+Description=Storage Lab API and portal container
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/podman start -a storage-lab-app
+ExecStop=/usr/bin/podman stop -t 10 storage-lab-app
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

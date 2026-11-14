@@ -1,0 +1,14 @@
+[Unit]
+Description=Storage Lab Caddy gateway
+After=network-online.target storage-lab-app.service storage-lab-rustfs.service storage-lab-couchdb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/podman start -a storage-lab-caddy
+ExecStop=/usr/bin/podman stop -t 10 storage-lab-caddy
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
