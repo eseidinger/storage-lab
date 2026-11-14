@@ -126,6 +126,15 @@
       failed_when: false
       when: pidfile_stat.stat.exists
 
+    - name: Require current HTTPS forwarding on a running VM
+      ansible.builtin.assert:
+        that:
+          - "'hostfwd=tcp:127.0.0.1:8080-:443' in vm_process.stdout"
+          - "'hostfwd=tcp:127.0.0.1:9000-:9443' in vm_process.stdout"
+          - "'hostfwd=tcp:127.0.0.1:8081-:9444' in vm_process.stdout"
+        fail_msg: Stop the running development VM and rerun this playbook to activate the HTTPS port forwarding rules.
+      when: pidfile_stat.stat.exists and vm_process.rc == 0 and vm_name in vm_process.stdout
+
     - name: Start development VM
       ansible.builtin.command:
         argv:

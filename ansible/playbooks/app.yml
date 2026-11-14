@@ -24,6 +24,8 @@
     oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or (storage_lab_oidc_client_id | default('storage-lab-portal')) }}"
     portal_public_url: "{{ 'https://localhost:8080' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
     s3_public_url: "{{ 'https://localhost:9000' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
+    portal_gateway_url: "{{ 'https://localhost:443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
+    s3_gateway_url: "{{ 'https://localhost:9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
   pre_tasks:
     - name: Validate external OIDC settings
       ansible.builtin.assert:
@@ -572,6 +574,7 @@
           - "{{ secret_dir }}/app-build.tar.gz"
           - --exclude=frontend/node_modules
           - --exclude=frontend/dist
+          - --exclude=frontend/.env*
           - -C
           - "{{ source_root }}"
           - Dockerfile
@@ -725,6 +728,29 @@
         argv: [podman, exec, storage-lab-caddy, caddy, reload, --config, /etc/caddy/Caddyfile]
       when: caddy_config.changed and caddy_container.rc == 0
       changed_when: true
+
+    - name: Verify HTTPS portal and API routes
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        validate_certs: false
+        status_code: 200
+      loop:
+        - "{{ portal_gateway_url }}/api/health"
+        - "{{ portal_gateway_url }}/auth/callback"
+      register: https_route
+      until: https_route.status == 200
+      retries: 30
+      delay: 2
+
+    - name: Verify administrative gateway routes are blocked
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        validate_certs: false
+        status_code: 403
+      loop:
+        - "{{ portal_gateway_url }}/couchdb/_all_dbs"
+        - "{{ s3_gateway_url }}/rustfs/admin/v3/info"
+      changed_when: false
 
   handlers:
     - name: Restart metadata PostgreSQL
