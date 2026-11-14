@@ -76,7 +76,7 @@ services:
       COUCHDB_PASSWORD: ${COUCHDB_ADMIN_PASSWORD}
     volumes:
       - couchdb-data:/opt/couchdb/data
-      - ./couchdb-single-node.ini:/opt/couchdb/etc/local.d/10-storage-lab.ini:ro
+      - ./couchdb-single-node.ini:/opt/couchdb/etc/local.d/10-storage-lab.ini
     restart: unless-stopped
 
   valkey:

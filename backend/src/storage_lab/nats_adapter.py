@@ -24,10 +24,6 @@ def _hash_password(secret: str) -> str:
     return value
 
 
-def _quote(value: str) -> str:
-    return json.dumps(value)
-
-
 class NatsConnection:
     def __init__(self, host: str, username: str, password: str, ca_file: str):
         raw = socket.create_connection((host, 4222), timeout=10)
@@ -38,6 +34,7 @@ class NatsConnection:
         if not info.startswith(b"INFO "):
             raise RuntimeError("NATS did not send server info")
         self.server_id = json.loads(info[5:])["server_id"]
+        self._sid = 0
         options = json.dumps({"user": username, "pass": password, "verbose": False, "pedantic": True})
         self.socket.sendall(f"CONNECT {options}\r\nPING\r\n".encode())
         while self._line() != b"PONG":
@@ -61,8 +58,10 @@ class NatsConnection:
 
     def request(self, subject: str, body: dict | None = None, *, allow_error: bool = False) -> dict:
         inbox = f"_INBOX.{uuid4().hex}"
+        self._sid += 1
+        sid = self._sid
         payload = json.dumps(body or {}, separators=(",", ":")).encode()
-        self.socket.sendall(f"SUB {inbox} 1\r\nPUB {subject} {inbox} {len(payload)}\r\n".encode()
+        self.socket.sendall(f"SUB {inbox} {sid}\r\nPUB {subject} {inbox} {len(payload)}\r\n".encode()
                             + payload + b"\r\nPING\r\n")
         while True:
             line = self._line()
@@ -71,6 +70,7 @@ class NatsConnection:
                 message = json.loads(self.stream.read(size))
                 if self.stream.read(2) != b"\r\n":
                     raise RuntimeError("Malformed NATS message")
+                self.socket.sendall(f"UNSUB {sid}\r\n".encode())
                 if message.get("error") and not allow_error:
                     raise RuntimeError(f"NATS request failed: {message['error']}")
                 return message
@@ -95,32 +95,26 @@ class NatsAdapter:
             yield state
 
     def _render(self, state: dict) -> str:
-        parts = [
-            'server_name: "storage-lab-nats"',
-            'listen: "0.0.0.0:4222"',
-            'jetstream { store_dir: "/data/jetstream" max_mem_store: 1GB max_file_store: 10GB }',
-            'tls { cert_file: "/certs/postgres.crt" key_file: "/certs/postgres.key" '
-            'ca_file: "/certs/postgres.crt" handshake_first: true }',
-            'system_account: SYS',
-            'accounts {',
-            f'SYS: {{ users: [{{ user: "sl_system", password: {_quote(state["sys_hash"])} }}] }}',
-        ]
+        accounts = {"SYS": {"users": [{"user": "sl_system", "password": state["sys_hash"]}]}}
         for project_id, account in sorted(state["accounts"].items()):
             prefix = f"sl_{project_id}"
-            parts.append(f'{prefix}: {{ jetstream: enabled users: [')
+            users = []
             for username, password_hash in sorted(account["users"].items()):
-                parts.append(
-                    f'{{ user: {_quote(username)}, password: {_quote(password_hash)}, '
-                    'permissions: { '
-                    f'publish: {{ allow: [{_quote(prefix + ".>")}, "$JS.API.>", "_INBOX.>"] }}, '
-                    f'subscribe: {{ allow: [{_quote(prefix + ".>")}, "$JS.ACK.>", "_INBOX.>"] }} '
-                    '} },'
-                )
-            parts.append('] }')
-        parts.append('}')
-        parts.append('authorization { users: [{ user: "sl_sealed_global", '
-                     f'password: {_quote(state["sys_hash"])} }}] }}')
-        return "\n".join(parts) + "\n"
+                users.append({"user": username, "password": password_hash, "permissions": {
+                    "publish": {"allow": [f"{prefix}.>", "$JS.API.>", "_INBOX.>"]},
+                    "subscribe": {"allow": [f"{prefix}.>", "$JS.ACK.>", "_INBOX.>"]},
+                }})
+            accounts[prefix] = {"jetstream": "enabled", "users": users}
+        config = {
+            "server_name": "storage-lab-nats", "listen": "0.0.0.0:4222",
+            "jetstream": {"store_dir": "/data/jetstream", "max_mem_store": 1073741824,
+                          "max_file_store": 10737418240},
+            "tls": {"cert_file": "/certs/postgres.crt", "key_file": "/certs/postgres.key",
+                    "ca_file": "/certs/postgres.crt", "handshake_first": True},
+            "system_account": "SYS", "accounts": accounts,
+            "authorization": {"users": [{"user": "sl_sealed_global", "password": state["sys_hash"]}]},
+        }
+        return json.dumps(config, indent=2) + "\n"
 
     def _save(self, state: dict, *, reload: bool = True) -> None:
         state_path = self.directory / "state.json"
@@ -159,8 +153,7 @@ class NatsAdapter:
 
     def initialize(self) -> None:
         with self._state() as state:
-            if not (self.directory / "nats.conf").exists():
-                self._save(state, reload=False)
+            self._save(state, reload=False)
 
     def provision(self, project_id: str, stream_max_bytes: int = 1073741824) -> tuple[str, dict]:
         name = self._name(project_id)

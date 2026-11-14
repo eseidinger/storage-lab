@@ -1,92 +1,4 @@
 ---
-- name: Remove the previous host and Podman deployment
-  hosts: storage_lab
-  become: true
-  tasks:
-    - name: Inspect previous Storage Lab systemd units
-      ansible.builtin.stat:
-        path: "/etc/systemd/system/{{ item }}.service"
-      loop:
-        - storage-lab-api
-        - storage-lab-worker
-        - storage-lab-rustfs
-        - storage-lab-couchdb
-        - storage-lab-keycloak
-        - storage-lab-app
-        - storage-lab-caddy
-      register: old_units
-
-    - name: Stop previous Storage Lab systemd units
-      ansible.builtin.systemd_service:
-        name: "{{ item.item }}"
-        state: stopped
-        enabled: false
-      loop: "{{ old_units.results }}"
-      when: item.stat.exists
-
-    - name: Remove previous Storage Lab systemd units
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ item.item }}.service"
-        state: absent
-      loop: "{{ old_units.results }}"
-      when: item.stat.exists
-
-    - name: Reload systemd after removing previous units
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-
-    - name: Check for previous Podman installation
-      ansible.builtin.stat:
-        path: /usr/bin/podman
-      register: old_podman
-
-    - name: Remove previous Podman containers
-      ansible.builtin.command:
-        argv: [podman, rm, -f, "{{ item }}"]
-      loop:
-        - storage-lab-api
-        - storage-lab-app
-        - storage-lab-caddy
-        - storage-lab-rustfs
-        - storage-lab-couchdb
-        - storage-lab-keycloak
-      when: old_podman.stat.exists
-      failed_when: false
-
-    - name: Remove previous Podman volumes
-      ansible.builtin.command:
-        argv: [podman, volume, rm, -f, "{{ item }}"]
-      loop:
-        - rustfs-data
-        - couchdb-data
-        - storage-lab-keycloak-data
-        - storage-lab-caddy-data
-      when: old_podman.stat.exists
-      failed_when: false
-
-    - name: Remove previous Podman and host PostgreSQL packages
-      ansible.builtin.apt:
-        name:
-          - podman
-          - postgresql
-          - postgresql-16
-          - postgresql-client
-          - postgresql-client-16
-        state: absent
-        purge: true
-
-    - name: Remove previous host application files and local Keycloak import
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /opt/storage-lab/backend
-        - /opt/storage-lab/venv
-        - /opt/storage-lab/keycloak-import
-        - /etc/storage-lab
-        - /etc/ssl/private/storage-lab-pg.key
-        - /etc/ssl/certs/storage-lab-pg.crt
-
 - import_playbook: deploy.yml
 
 - name: Deploy Storage Lab through Docker Compose
@@ -158,7 +70,7 @@
         argv: [sysctl, -w, vm.max_map_count=262144]
       when: opensearch_sysctl.changed
 
-    - name: Clear previous image build context
+    - name: Refresh image build context
       ansible.builtin.file:
         path: /opt/storage-lab/image
         state: absent
@@ -291,6 +203,17 @@
         argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, run, --rm, --no-deps, nats-init]
         chdir: /opt/storage-lab
 
+    - name: Validate NATS configuration
+      ansible.builtin.command:
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, run, --rm, --no-deps, --entrypoint, nats-server, nats, -t, -c, /etc/nats/nats.conf]
+        chdir: /opt/storage-lab
+      changed_when: false
+
+    - name: Restart NATS with the current configuration
+      ansible.builtin.command:
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --force-recreate, nats]
+        chdir: /opt/storage-lab
+
     - name: Start data services
       ansible.builtin.command:
         argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards, hugegraph, nats]
@@ -327,7 +250,7 @@
 
     - name: Validate Caddy configuration
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, run, --rm, --no-deps, caddy, validate, --config, /etc/caddy/Caddyfile]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, run, --rm, --no-deps, caddy, caddy, validate, --config, /etc/caddy/Caddyfile]
         chdir: /opt/storage-lab
       changed_when: false
 
