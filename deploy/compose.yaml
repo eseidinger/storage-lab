@@ -1,0 +1,145 @@
+name: storage-lab
+
+x-app-image: &app-image
+  image: storage-lab-app:local
+  build:
+    context: ./image
+    args:
+      VITE_API_URL: /api
+      VITE_OIDC_AUTHORITY: ${OIDC_ISSUER}
+      VITE_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+
+services:
+  metadata-db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: storage_lab
+      POSTGRES_PASSWORD: ${META_POSTGRES_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
+    volumes:
+      - metadata-db-data:/var/lib/postgresql/data
+      - ./metadata-init.sh:/docker-entrypoint-initdb.d/10-storage-lab.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d storage_lab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  app-postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_PASSWORD: ${APP_PG_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/postgres.crt
+      - -c
+      - ssl_key_file=/certs/postgres.key
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    ports:
+      - "5433:5432"
+    volumes:
+      - app-postgres-data:/var/lib/postgresql/data
+      - ./certs/postgres.crt:/certs/postgres.crt:ro
+      - ./certs/postgres.key:/certs/postgres.key:ro
+      - ./app-pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  rustfs:
+    image: docker.io/rustfs/rustfs@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
+    command: [/data]
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - rustfs-data:/data
+    restart: unless-stopped
+
+  couchdb:
+    image: docker.io/apache/couchdb@sha256:691c86227d66e9d6b4dd5b045b41f674c145a1cc70d05cfb1f1c804ad7ff4563
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: ${COUCHDB_ADMIN_PASSWORD}
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+      - ./couchdb-single-node.ini:/opt/couchdb/etc/local.d/10-storage-lab.ini:ro
+    restart: unless-stopped
+
+  migrate:
+    <<: *app-image
+    profiles: [tools]
+    env_file: ./worker.env
+    environment:
+      STORAGE_LAB_UI_DIST: ""
+    command: [alembic, -c, /app/alembic.ini, upgrade, head]
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+
+  app:
+    <<: *app-image
+    env_file: ./api.env
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+      couchdb:
+        condition: service_started
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    <<: *app-image
+    env_file: ./worker.env
+    environment:
+      STORAGE_LAB_UI_DIST: ""
+    command: [python, -m, storage_lab.worker]
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+      app-postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+      couchdb:
+        condition: service_started
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10.2
+    ports:
+      - "443:443"
+      - "9443:9443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  metadata-db-data:
+  app-postgres-data:
+  rustfs-data:
+  couchdb-data:
+  caddy-data:
+  caddy-config:

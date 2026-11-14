@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     postgres_admin_dsn: str = ""
     postgres_public_host: str = "localhost"
     postgres_public_port: int = 5432
+    postgres_internal_host: str = ""
+    postgres_internal_port: int = 0
     s3_endpoint_url: str = ""
     s3_public_endpoint_url: str = ""
     s3_region: str = "us-east-1"

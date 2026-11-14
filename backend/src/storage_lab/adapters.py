@@ -106,8 +106,8 @@ class PostgreSQLAdapter:
                     )
                 )
         with psycopg.connect(
-            host=self.settings.postgres_public_host,
-            port=self.settings.postgres_public_port,
+            host=self.settings.postgres_internal_host or self.settings.postgres_public_host,
+            port=self.settings.postgres_internal_port or self.settings.postgres_public_port,
             dbname=dbname,
             user=username,
             password=secret,

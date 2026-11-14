@@ -10,25 +10,25 @@ https://{{ storage_lab_portal_host | default('localhost') }}{{ ':443' if (storag
     route {
         handle @couch_all_docs {
             uri strip_prefix /couchdb
-            reverse_proxy 127.0.0.1:5984
+            reverse_proxy couchdb:5984
         }
         handle @couch_private {
             respond 403
         }
         handle @couch_project {
             uri strip_prefix /couchdb
-            reverse_proxy 127.0.0.1:5984
+            reverse_proxy couchdb:5984
         }
         handle /couchdb* {
             respond 403
         }
         handle_path /api/* {
-            reverse_proxy 127.0.0.1:8000 {
+            reverse_proxy app:8000 {
                 header_up X-Storage-Lab-API true
             }
         }
         handle {
-            reverse_proxy 127.0.0.1:8000
+            reverse_proxy app:8000
         }
     }
 }
@@ -44,14 +44,7 @@ https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_l
             respond 403
         }
         handle {
-            reverse_proxy 127.0.0.1:9000
+            reverse_proxy rustfs:9000
         }
     }
 }
-{% if use_local_keycloak %}
-
-https://localhost:9444 {
-    tls internal
-    reverse_proxy 127.0.0.1:8082
-}
-{% endif %}

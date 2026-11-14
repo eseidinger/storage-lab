@@ -17,8 +17,11 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --system --no-create-home --uid 10001 storage-lab
 COPY backend/src/ ./src/
+COPY backend/migrations/ ./migrations/
+COPY backend/scripts/ ./scripts/
+COPY backend/alembic.ini ./alembic.ini
 COPY --from=frontend-build /build/frontend/dist/ ./frontend/
 USER storage-lab
 EXPOSE 8000
 ENV PYTHONPATH=/app/src
-CMD ["uvicorn", "storage_lab.api:app", "--host", "127.0.0.1", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+CMD ["uvicorn", "storage_lab.api:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
