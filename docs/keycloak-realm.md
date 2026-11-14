@@ -2,7 +2,7 @@
 
 Storage Lab uses Keycloak for **authentication**. Project roles (`admin`, `viewer`) and global `platform-admin` grants are stored in the Storage Lab metadata database. These permissions do not require Keycloak roles or role mappings.
 
-This guide covers an existing realm such as `platform` and the current local portal address, `http://localhost:8080`. Replace the URLs below when the portal uses another address. The browser must be able to reach the realm's OIDC endpoints, and the API must be able to reach its JWKS endpoint.
+This guide covers an existing realm such as `platform` and the current local portal address, `https://localhost:8080`. Replace the URLs below when the portal uses another address. The browser must be able to reach the realm's OIDC endpoints, and the API must be able to reach its JWKS endpoint.
 
 ## 1. Check the realm and OIDC endpoints
 
@@ -30,9 +30,9 @@ Create an OpenID Connect client under **Clients** in the realm with these settin
 | Client authentication | **Off** (public browser client, no client secret) |
 | Standard flow | **On** (Authorization Code) |
 | PKCE method | `S256` |
-| Valid redirect URIs | `http://localhost:8080/auth/callback` |
-| Valid post logout redirect URIs | `http://localhost:8080` |
-| Web origins | `http://localhost:8080` |
+| Valid redirect URIs | `https://localhost:8080/auth/callback` |
+| Valid post logout redirect URIs | `https://localhost:8080` |
+| Web origins | `https://localhost:8080` |
 | Direct access grants | **Off** |
 | Implicit flow | **Off** |
 
@@ -73,7 +73,7 @@ If the client ID or API audience differs, also set `STORAGE_LAB_OIDC_CLIENT_ID` 
 
 1. Compare `issuer` and `jwks_uri` in the discovery document with the API configuration.
 2. Sign in through the portal and inspect the **access token**: `iss` matches the realm, `aud` contains `storage-lab-api`, `sub` is present, and the JWT header has `alg: RS256`. The `sub` value is also the user ID used for Platform Admin bootstrap.
-3. Use the access token to call `GET http://localhost:8080/api/me`, then `GET http://localhost:8080/api/projects`. A `401` means the token is missing or invalid. `/api/me` reports `platform_admin` from the metadata database, independently of Keycloak roles.
+3. Use the access token to call `GET https://localhost:8080/api/me`, then `GET https://localhost:8080/api/projects`. A `401` means the token is missing or invalid. `/api/me` reports `platform_admin` from the metadata database, independently of Keycloak roles.
 4. Check both login and logout in the browser. A login failure before returning to the portal often indicates a redirect URI mismatch. A browser token exchange failure may indicate a missing web origin or PKCE setting. An API `401` often indicates a mismatched issuer, audience, or signature.
 
 The local realm template and API configuration in this repository are the reference for these values. See the [Keycloak server administration guide](https://www.keycloak.org/docs/latest/server_admin/) for the Admin Console settings.

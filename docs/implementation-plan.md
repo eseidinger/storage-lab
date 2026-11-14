@@ -7,7 +7,7 @@ The [architecture](architecture.md) describes the current three-capability syste
 | Area | Status and evidence |
 | --- | --- |
 | Foundation | Python FastAPI API and worker, React/TypeScript/Mantine portal, SQLAlchemy models, Alembic migrations, pinned Python and npm dependencies |
-| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys two PostgreSQL clusters, RustFS, CouchDB, API, worker, portal, and Nginx; the Platform Keycloak realm is configured, with local Keycloak optional |
+| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys two PostgreSQL clusters, RustFS, CouchDB, combined API/portal image, worker, and Caddy; the Platform Keycloak realm is configured, with local Keycloak optional |
 | Identity and projects | OIDC token verification, local project memberships, administrator/viewer roles, project and operation authorization, audit records |
 | Provisioning | Transactional operation creation, worker leasing, idempotent PostgreSQL/S3/CouchDB reconciliation, error reporting and retry |
 | PostgreSQL | Project database, non-login owner, separate migration/runtime credentials, TLS, revocation, deletion, cross-project access test |
@@ -23,7 +23,7 @@ This is a working **local development slice**, not a completed production releas
 2. Add worker lease renewal or limit concurrency to one worker and enforce a timeout shorter than the lease. Exercise interruption during each adapter step and verify recovery from observed PostgreSQL, RustFS, and CouchDB state.
 3. Define quotas, upload size limits, S3 object pagination UX, and operation metrics. Add endpoint health checks to the deployment playbook.
 4. Add backup and restore automation for metadata PostgreSQL, application PostgreSQL, RustFS, CouchDB, and encryption keys. Restore a test backup and reconcile before restarting the worker.
-5. Prepare a production inventory with DNS, trusted TLS, certificate renewal, secret storage, monitoring, firewall rules, and exposure tests. Confirm that the Platform client includes `storage-lab-api` in access-token audiences.
+5. Prepare a production inventory with DNS, public ACME certificates, secret storage, monitoring, firewall rules, and exposure tests. Confirm that the Platform client includes `storage-lab-api` in access-token audiences.
 6. Define project deletion and retention policy. Make destructive operations follow the approved retention period and verify credential revocation before deletion.
 
 **Release acceptance:** Two projects complete sign-in, PostgreSQL, S3, and CouchDB provisioning, credential issuance, data access, revocation, and confirmed deletion. Each project is denied access to the other's API state, PostgreSQL database, S3 bucket, CouchDB database, and browser views. Wrong-issuer, wrong-audience, expired, and unsigned tokens fail. An interrupted job resumes without duplicate resources. Backups restore successfully, and only intended data endpoints are public.
@@ -40,4 +40,4 @@ Add one service adapter at a time: HugeGraph, Qdrant, Valkey, OpenSearch, ClickH
 | Backup targets, retention, and recovery objectives | Determines restore procedure and release gate |
 | Per-service quotas and host capacity | Prevents a project from exhausting the shared host |
 | Project deletion retention | Defines when data is irreversibly removed |
-| Production DNS, TLS, and secret store | Defines the public endpoint and operator boundary |
+| Production DNS, ACME, and secret store | Defines the public endpoint and operator boundary |

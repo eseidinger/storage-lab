@@ -6,17 +6,17 @@
 
 | Component | Current responsibility | Boundary |
 | --- | --- | --- |
-| React portal | OIDC login, projects, memberships, capability status, credentials, S3 objects, and JSON documents | Nginx at `localhost:8080` in development |
-| FastAPI API | JWT validation, project authorization, metadata changes, project-scoped object and document views | Nginx `/api/`; no service administration keys |
+| React portal | OIDC login, projects, memberships, capability status, credentials, S3 objects, and JSON documents | Bundled in the API image; Caddy at `https://localhost:8080` |
+| FastAPI API | JWT validation, project authorization, metadata changes, project-scoped object and document views | Caddy `/api/` to the combined app container; no service administration keys |
 | Metadata PostgreSQL | Projects, memberships, platform administrators, capabilities, operations, credentials, audit events | Guest loopback port 5432; API and worker have separate database roles |
 | Python worker | Leased operation processing and service reconciliation | Internal; holds application PostgreSQL, RustFS, and CouchDB admin credentials |
 | Application PostgreSQL | One database and non-login owner role per project | Guest port 5433; host loopback forwarding; TLS |
-| RustFS | One private bucket and policy per project | Internal port 9000; public S3 data proxy on guest port 9002/host port 9000 |
-| CouchDB | One protected JSON database per project | Internal port 5984; Nginx exposes project database paths under `/couchdb/` |
+| RustFS | One private bucket and policy per project | Internal port 9000; Caddy HTTPS gateway on guest port 9443/host port 9000 |
+| CouchDB | One protected JSON database per project | Internal port 5984; Caddy exposes project database paths under `/couchdb/` |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
 | Local Keycloak | Optional isolated development realm and sample user | Host port 8081 when enabled |
 
-The local VM uses HTTP for its portal, S3 gateway, and CouchDB data path; the Platform Keycloak endpoint uses HTTPS. Forwarded ports bind to the host loopback interface. Production deployment still requires DNS, trusted TLS certificates, HTTPS/WSS routing, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Nginx; both services bind to guest loopback. The metadata database is not forwarded.
+Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services bind to guest loopback. The metadata database is not forwarded.
 
 ## Identity and project authorization
 
@@ -42,11 +42,11 @@ The worker creates a private bucket and a bucket-scoped policy. Each workload ge
 
 ### CouchDB documents
 
-The worker creates a database named from the immutable project ID, then sets `/{db}/_security` with named members and no public roles. A separate encrypted browser identity lets the API list and edit documents after checking project membership. Each workload credential creates a CouchDB user and adds its name to the database members. Revocation removes the member and user; the final member is retained in the security object until database deletion to avoid briefly exposing an open database. The portal lists document IDs with pagination and edits JSON using CouchDB revisions. The public Nginx gateway forwards only `/couchdb/sl_<project-id>/...` paths; global routes and database administration routes are blocked, while `/_all_docs` remains available for document listing. The live test verifies anonymous denial, cross-project denial, revocation, gateway filtering, and reprovisioning. See [CouchDB database security](https://docs.couchdb.org/en/stable/api/database/security.html).
+The worker creates a database named from the immutable project ID, then sets `/{db}/_security` with named members and no public roles. A separate encrypted browser identity lets the API list and edit documents after checking project membership. Each workload credential creates a CouchDB user and adds its name to the database members. Revocation removes the member and user; the final member is retained in the security object until database deletion to avoid briefly exposing an open database. The portal lists document IDs with pagination and edits JSON using CouchDB revisions. The public Caddy gateway forwards only `/couchdb/sl_<project-id>/...` paths; global routes and database administration routes are blocked, while `/_all_docs` remains available for document listing. The live test verifies anonymous denial, cross-project denial, revocation, gateway filtering, and reprovisioning. See [CouchDB database security](https://docs.couchdb.org/en/stable/api/database/security.html).
 
 ## API surface
 
-The Nginx prefix is `/api`; the FastAPI routes below are relative to that prefix. The generated OpenAPI schema is available at `/api/openapi.json` in development.
+The Caddy prefix is `/api`; the FastAPI routes below are relative to that prefix. The generated OpenAPI schema is available at `/api/openapi.json` in development.
 
 | Method and route | Purpose |
 | --- | --- |
@@ -71,9 +71,9 @@ Asynchronous mutations return an operation ID; the portal polls until success or
 
 ## Operations and recovery
 
-Alembic manages metadata schema revisions. Ansible deploys pinned Python dependencies, builds the portal, applies migrations, installs systemd units, and configures Nginx and the data services. Re-running the playbook preserves the VM disk and service volumes. The [VM guide](development-vm.md) gives the verification procedure.
+Alembic manages metadata schema revisions. Ansible builds one image containing the API and portal, applies migrations, installs Podman-backed systemd units for the app and Caddy, and configures the data services. Re-running the playbook preserves the VM disk and service volumes. The [VM guide](development-vm.md) gives the verification procedure.
 
-Backup and restore automation is not implemented. Before any non-development deployment, define separate backup targets and restore tests for metadata PostgreSQL, application PostgreSQL, RustFS and CouchDB data, and encryption keys. Restore must reconcile metadata with service resources before worker jobs resume. The current local TLS certificate is self-signed and expires after one year; production certificate renewal is also outstanding.
+Backup and restore automation is not implemented. Before any non-development deployment, define separate backup targets and restore tests for metadata PostgreSQL, application PostgreSQL, RustFS and CouchDB data, and encryption keys. Restore must reconcile metadata with service resources before worker jobs resume. The local Caddy CA is trusted manually on development hosts. Caddy handles ACME certificates when configured for public DNS names on ports 80 and 443.
 
 ## Planned capabilities
 
