@@ -29,6 +29,24 @@ class Membership(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
+class PlatformAdmin(Base):
+    __tablename__ = "platform_admins"
+
+    identity: Mapped[str] = mapped_column(String(600), primary_key=True)
+    granted_by: Mapped[str] = mapped_column(String(600), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PlatformAdminEvent(Base):
+    __tablename__ = "platform_admin_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(600), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    identity: Mapped[str] = mapped_column(String(600), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class Capability(Base):
     __tablename__ = "capabilities"
     __table_args__ = (UniqueConstraint("project_id", "kind"),)

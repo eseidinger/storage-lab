@@ -25,6 +25,8 @@ Open `http://localhost:8080` and sign in through the Platform Keycloak realm at 
 
 The Platform realm's portal client must permit Authorization Code with PKCE, redirect URI `http://localhost:8080/auth/callback`, and an access-token audience of `storage-lab-api`. To switch to the local test realm, set `STORAGE_LAB_USE_LOCAL_KEYCLOAK=true` for the application playbook; its sample user is `lab`, with the generated password in `.local/deploy/keycloak-user-password`. To override the external realm, set both `STORAGE_LAB_OIDC_ISSUER` and `STORAGE_LAB_OIDC_JWKS_URL`, plus audience and client ID if they differ.
 
+Global `platform-admin` grants are stored in the Storage Lab metadata database and keyed by the OIDC issuer and subject. Platform Admins can see and administer all projects without project membership; project `admin` and `viewer` roles remain project-scoped. Keycloak provides authentication only. Bootstrap the first Platform Admin on the VM as described in the [VM guide](docs/development-vm.md); existing Platform Admins can then manage grants in the portal.
+
 ## Current project workflow
 
 1. Sign in and create a project. The creator is its first administrator.

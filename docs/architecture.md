@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | React portal | OIDC login, projects, memberships, capability status, credentials, S3 objects, and JSON documents | Nginx at `localhost:8080` in development |
 | FastAPI API | JWT validation, project authorization, metadata changes, project-scoped object and document views | Nginx `/api/`; no service administration keys |
-| Metadata PostgreSQL | Projects, memberships, capabilities, operations, credentials, audit events | Guest loopback port 5432; API and worker have separate database roles |
+| Metadata PostgreSQL | Projects, memberships, platform administrators, capabilities, operations, credentials, audit events | Guest loopback port 5432; API and worker have separate database roles |
 | Python worker | Leased operation processing and service reconciliation | Internal; holds application PostgreSQL, RustFS, and CouchDB admin credentials |
 | Application PostgreSQL | One database and non-login owner role per project | Guest port 5433; host loopback forwarding; TLS |
 | RustFS | One private bucket and policy per project | Internal port 9000; public S3 data proxy on guest port 9002/host port 9000 |
@@ -20,7 +20,7 @@ The local VM uses HTTP for its portal, S3 gateway, and CouchDB data path; the Pl
 
 ## Identity and project authorization
 
-The portal uses OIDC Authorization Code with PKCE. The API accepts RS256 access tokens only after verifying the signature against JWKS and checking issuer, audience, expiry, and required claims. It maps `(iss, sub)` to a local membership. A project creator becomes its first administrator. Administrators can manage members, capabilities, credentials, and objects; viewers can read project information and download objects. The API checks membership for project and operation routes and returns 404 for unauthorized project access. The final administrator cannot be demoted.
+The portal uses OIDC Authorization Code with PKCE. The API accepts RS256 access tokens only after verifying the signature against JWKS and checking issuer, audience, expiry, and required claims. It maps `(iss, sub)` to local authorization records. A project creator becomes its first administrator. Project administrators can manage members, capabilities, credentials, and objects; viewers can read project information and download objects. The metadata `platform_admins` table grants global `platform-admin` access by `(iss, sub)`: these users can see and administer every project without project membership, and manage other platform administrators. Grants and revocations are recorded in `platform_admin_events`. Keycloak provides authentication; Storage Lab stores the permissions. The API checks membership or the metadata Platform Admin grant for project and operation routes and returns 404 for unauthorized project access. The final project administrator and the final Platform Admin cannot be removed.
 
 A portal identity and a workload credential have different purposes. Workload credentials authenticate directly to PostgreSQL, S3, or CouchDB and carry no API membership. Credential secrets are returned only from the issuance request. The encrypted secret stays in an operation payload until the worker finishes; ordinary API responses and audit events expose no secret. The portal keeps the one-time value in component state while the dialog is open.
 
@@ -51,6 +51,8 @@ The Nginx prefix is `/api`; the FastAPI routes below are relative to that prefix
 | Method and route | Purpose |
 | --- | --- |
 | `GET /health` | Process health |
+| `GET /me` | Return whether the signed-in user is a Platform Admin |
+| `GET /platform-admins`, `POST /platform-admins`, `DELETE /platform-admins` | List, grant, and revoke global Platform Admin access; only Platform Admins may use these routes |
 | `POST /projects`, `GET /projects`, `GET /projects/{id}` | Create and read projects |
 | `GET /projects/{id}/members`, `POST /projects/{id}/members` | Read and add/update members |
 | `GET /projects/{id}/capabilities`, `GET /projects/{id}/capabilities/{kind}` | Read capability status and connection details |

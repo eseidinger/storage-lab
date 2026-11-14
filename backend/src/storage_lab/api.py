@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from .auth import Principal, current_principal
 from .db import get_session
-from .models import AuditEvent, Capability, Credential, Membership, Operation, Project
+from .models import AuditEvent, Capability, Credential, Membership, Operation, PlatformAdmin, PlatformAdminEvent, Project
 from .schemas import (
     CapabilityView,
     CredentialCreate,
@@ -26,6 +26,8 @@ from .schemas import (
     MemberCreate,
     MemberView,
     OperationView,
+    PlatformAdminCreate,
+    PlatformAdminView,
     ProjectCreate,
     ProjectView,
 )
@@ -36,7 +38,25 @@ app = FastAPI(title="Storage Lab API", version="0.1.0")
 SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents"}
 
 
+def is_platform_admin(session: Session, principal: Principal) -> bool:
+    return session.get(PlatformAdmin, principal.identity) is not None
+
+
+def require_platform_admin(session: Session, principal: Principal) -> None:
+    if not is_platform_admin(session, principal):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Platform admin required")
+
+
+def platform_admin_view(admin: PlatformAdmin) -> PlatformAdminView:
+    issuer, subject = admin.identity.split("::", 1)
+    return PlatformAdminView(issuer=issuer, subject=subject, granted_by=admin.granted_by, created_at=admin.created_at)
+
+
 def membership(session: Session, project_id: str, principal: Principal, admin: bool = False) -> Membership:
+    if is_platform_admin(session, principal):
+        if session.get(Project, project_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+        return Membership(project_id=project_id, identity=principal.identity, role="admin")
     member = session.scalar(
         select(Membership).where(
             Membership.project_id == project_id,
@@ -144,6 +164,56 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/me")
+def current_user(principal: Principal = Depends(current_principal), session: Session = Depends(get_session)) -> dict[str, bool]:
+    return {"platform_admin": is_platform_admin(session, principal)}
+
+
+@app.get("/platform-admins", response_model=list[PlatformAdminView])
+def list_platform_admins(
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> list[PlatformAdminView]:
+    require_platform_admin(session, principal)
+    admins = session.scalars(select(PlatformAdmin).order_by(PlatformAdmin.created_at, PlatformAdmin.identity)).all()
+    return [platform_admin_view(admin) for admin in admins]
+
+
+@app.post("/platform-admins", response_model=PlatformAdminView, status_code=201)
+def add_platform_admin(
+    body: PlatformAdminCreate,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> PlatformAdminView:
+    require_platform_admin(session, principal)
+    identity = f"{body.issuer}::{body.subject}"
+    if session.get(PlatformAdmin, identity) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Platform admin already exists")
+    admin = PlatformAdmin(identity=identity, granted_by=principal.identity)
+    session.add_all([admin, PlatformAdminEvent(actor=principal.identity, action="grant", identity=identity)])
+    session.commit()
+    return platform_admin_view(admin)
+
+
+@app.delete("/platform-admins", status_code=204)
+def remove_platform_admin(
+    body: PlatformAdminCreate,
+    principal: Principal = Depends(current_principal),
+    session: Session = Depends(get_session),
+) -> None:
+    admins = session.scalars(select(PlatformAdmin).order_by(PlatformAdmin.identity).with_for_update()).all()
+    if not any(item.identity == principal.identity for item in admins):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Platform admin required")
+    admin = next((item for item in admins if item.identity == f"{body.issuer}::{body.subject}"), None)
+    if admin is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Platform admin not found")
+    if len(admins) <= 1:
+        raise HTTPException(status.HTTP_409_CONFLICT, "At least one platform admin is required")
+    session.delete(admin)
+    session.add(PlatformAdminEvent(actor=principal.identity, action="revoke", identity=admin.identity))
+    session.commit()
+
+
 @app.post("/projects", response_model=ProjectView, status_code=201)
 def create_project(
     body: ProjectCreate,
@@ -167,6 +237,9 @@ def list_projects(
     principal: Principal = Depends(current_principal),
     session: Session = Depends(get_session),
 ) -> list[ProjectView]:
+    if is_platform_admin(session, principal):
+        projects = session.scalars(select(Project).order_by(Project.created_at.desc())).all()
+        return [project_view(project, Membership(project_id=project.id, identity=principal.identity, role="admin")) for project in projects]
     rows = session.execute(
         select(Project, Membership)
         .join(Membership, Membership.project_id == Project.id)

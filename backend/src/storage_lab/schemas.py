@@ -20,6 +20,16 @@ class MemberView(BaseModel):
     role: str
 
 
+class PlatformAdminCreate(BaseModel):
+    issuer: str = Field(min_length=1, max_length=300)
+    subject: str = Field(min_length=1, max_length=250)
+
+
+class PlatformAdminView(PlatformAdminCreate):
+    granted_by: str
+    created_at: datetime
+
+
 class ProjectView(BaseModel):
     id: str
     name: str

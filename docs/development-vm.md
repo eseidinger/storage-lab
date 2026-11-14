@@ -34,6 +34,16 @@ The first playbook downloads the cloud image, creates an independent QCOW2 disk,
 
 To use the optional local Keycloak realm, run `STORAGE_LAB_USE_LOCAL_KEYCLOAK=true ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml`. Its realm is `storage-lab`, portal client is `storage-lab-portal`, API audience is `storage-lab-api`, and sample user is `lab`. Read the generated password from `.local/deploy/keycloak-user-password`. The local admin password is in `.local/deploy/keycloak-admin-password`. These files are private development secrets and must not be committed. Realm JSON import applies only when the local realm is first created; later changes need a Keycloak admin update or a fresh development realm.
 
+Global Platform Admin grants are stored in the metadata database, keyed by the user's OIDC issuer and subject. After deploying the schema migration, bootstrap the first Platform Admin from inside the VM, replacing `KEYCLOAK_USER_ID` with the user's Keycloak `sub` claim (the user ID in the Keycloak admin console):
+
+```sh
+sudo -u storage-lab-api bash -c 'set -a; . /etc/storage-lab/api.env; export PYTHONPATH=/opt/storage-lab/backend/src; /opt/storage-lab/venv/bin/python -m storage_lab.platform_admin --issuer https://identity.eseidinger.de/realms/platform --subject KEYCLOAK_USER_ID'
+```
+
+The bootstrap command is idempotent. A Platform Admin can then add or remove other Platform Admins in the portal; the last one cannot be removed. After a grant, refresh the portal to load the new permission.
+
+The old `storage-lab-portal-admin` Keycloak role is no longer part of the local realm import. If it already exists in a local or Platform realm, remove that existing role in Keycloak after confirming the metadata grant for each intended administrator; Ansible's import does not remove roles from existing realms.
+
 To override the inventory's external issuer, set both `STORAGE_LAB_OIDC_ISSUER` and `STORAGE_LAB_OIDC_JWKS_URL` before running the application playbook. Set `STORAGE_LAB_OIDC_AUDIENCE` and `STORAGE_LAB_OIDC_CLIENT_ID` if those differ as well. Configure the portal client for code flow with PKCE, callback URL `http://localhost:8080/auth/callback`, and an access-token audience matching the API setting.
 
 ## Connect and verify

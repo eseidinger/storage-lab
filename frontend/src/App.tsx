@@ -5,7 +5,7 @@ import { notifications } from '@mantine/notifications'
 import { IconArrowLeft, IconDatabase, IconFileText, IconLogout, IconPlus, IconServer, IconTrash } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'react-router'
-import { api, type Capability, type Credential, type IssuedCredential, type Member, type Operation, type Project, type StoredObject } from './api'
+import { api, type Capability, type Credential, type CurrentUser, type IssuedCredential, type Member, type Operation, type PlatformAdmin, type Project, type StoredObject } from './api'
 import { AuthProvider, useAuth } from './auth'
 import { Documents } from './Documents'
 import './App.css'
@@ -19,12 +19,13 @@ type Kind = keyof typeof kinds
 const notifyError = (error: unknown) => notifications.show({ color: 'red', title: 'Request failed', message: error instanceof Error ? error.message : String(error) })
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth()
+  const { user, token, logout } = useAuth()
   const queryClient = useQueryClient()
+  const currentUser = useQuery({ queryKey: ['me'], queryFn: () => api<CurrentUser>('/me', token!), enabled: !!token })
   return <AppShell header={{ height: 70 }} padding="md">
     <AppShell.Header className="shell-header"><Container size="lg" h="100%"><Group h="100%" justify="space-between">
       <Group gap="sm"><Box className="brand-mark">S</Box><Text fw={800} size="lg">Storage Lab</Text><Badge variant="light" color="cyan">Development</Badge></Group>
-      <Group gap="sm"><Text size="sm" c="dimmed" visibleFrom="sm">{user?.profile.preferred_username ?? user?.profile.sub}</Text><Button size="xs" variant="subtle" leftSection={<IconLogout size={16} />} onClick={() => { queryClient.clear(); void logout() }}>Sign out</Button></Group>
+      <Group gap="sm">{currentUser.data?.platform_admin && <Badge color="violet" variant="light">Platform Admin</Badge>}<Text size="sm" c="dimmed" visibleFrom="sm">{user?.profile.preferred_username ?? user?.profile.sub}</Text><Button size="xs" variant="subtle" leftSection={<IconLogout size={16} />} onClick={() => { queryClient.clear(); void logout() }}>Sign out</Button></Group>
     </Group></Container></AppShell.Header>
     <AppShell.Main><Container size="lg" py="xl">{children}</Container></AppShell.Main>
   </AppShell>
@@ -37,6 +38,7 @@ function Home() {
   const [opened, setOpened] = useState(false)
   const form = useForm({ initialValues: { name: '' }, validate: { name: value => value.trim() ? null : 'Enter a project name' } })
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects', token!) })
+  const currentUser = useQuery({ queryKey: ['me'], queryFn: () => api<CurrentUser>('/me', token!) })
   const create = useMutation({ mutationFn: (name: string) => api<Project>('/projects', token!, { method: 'POST', body: JSON.stringify({ name }) }), onSuccess: project => { setOpened(false); form.reset(); void queryClient.invalidateQueries({ queryKey: ['projects'] }); navigate(`/projects/${project.id}`) }, onError: notifyError })
   return <Shell><Stack gap="xl">
     <Box className="hero-panel"><Text className="eyebrow">PROJECT STORAGE</Text><Title order={1}>Your data services, in one place.</Title><Text c="dimmed" mt="xs">Create a project, enable a service, and track provisioning from this portal.</Text><Button mt="xl" leftSection={<IconPlus size={18} />} onClick={() => setOpened(true)}>New project</Button></Box>
@@ -44,8 +46,20 @@ function Home() {
     {projects.isLoading && <Loader />}{projects.isError && <Alert color="red">{String(projects.error)}</Alert>}
     {projects.data?.length === 0 && <Paper p="xl" withBorder><Text c="dimmed">No projects yet. Create one to get started.</Text></Paper>}
     <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>{projects.data?.map(project => <Card key={project.id} component={Link} to={`/projects/${project.id}`} className="project-card" withBorder padding="lg"><Group justify="space-between"><Box className="project-icon"><IconServer size={22} /></Box><Badge variant="light">{project.role}</Badge></Group><Title order={3} mt="lg">{project.name}</Title><Text size="xs" c="dimmed" mt="sm">ID {project.id.slice(0, 12)}</Text></Card>)}</SimpleGrid>
+    {currentUser.data?.platform_admin && <PlatformAdmins />}
     <Modal opened={opened} onClose={() => setOpened(false)} title="Create project" centered><form onSubmit={form.onSubmit(values => create.mutate(values.name.trim()))}><Stack><TextInput label="Project name" placeholder="e.g. Analytics sandbox" required {...form.getInputProps('name')} /><Button type="submit" loading={create.isPending}>Create project</Button></Stack></form></Modal>
   </Stack></Shell>
+}
+
+function PlatformAdmins() {
+  const { token } = useAuth()
+  const queryClient = useQueryClient()
+  const [issuer, setIssuer] = useState(import.meta.env.VITE_OIDC_AUTHORITY ?? '')
+  const [subject, setSubject] = useState('')
+  const admins = useQuery({ queryKey: ['platform-admins'], queryFn: () => api<PlatformAdmin[]>('/platform-admins', token!) })
+  const add = useMutation({ mutationFn: () => api<PlatformAdmin>('/platform-admins', token!, { method: 'POST', body: JSON.stringify({ issuer, subject }) }), onSuccess: () => { setSubject(''); void queryClient.invalidateQueries({ queryKey: ['platform-admins'] }) }, onError: notifyError })
+  const remove = useMutation({ mutationFn: (admin: PlatformAdmin) => api<void>('/platform-admins', token!, { method: 'DELETE', body: JSON.stringify({ issuer: admin.issuer, subject: admin.subject }) }), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['platform-admins'] }); void queryClient.invalidateQueries({ queryKey: ['me'] }); void queryClient.invalidateQueries({ queryKey: ['projects'] }) }, onError: notifyError })
+  return <Paper withBorder p="lg"><Title order={2} mb="md">Platform administrators</Title><Stack gap="xs">{admins.data?.map(admin => <Group key={`${admin.issuer}:${admin.subject}`} justify="space-between"><Box><Text size="sm">{admin.subject}</Text><Text size="xs" c="dimmed">{admin.issuer}</Text></Box><Button size="xs" color="red" variant="subtle" disabled={admins.data.length <= 1} loading={remove.isPending} onClick={() => remove.mutate(admin)}>Remove</Button></Group>)}</Stack><Divider my="lg" /><Text fw={700} size="sm" mb="sm">Add platform administrator</Text><SimpleGrid cols={{ base: 1, sm: 3 }}><TextInput label="Issuer" value={issuer} onChange={event => setIssuer(event.currentTarget.value)} /><TextInput label="Subject" value={subject} onChange={event => setSubject(event.currentTarget.value)} /><Button mt="xl" disabled={!issuer.trim() || !subject.trim()} loading={add.isPending} onClick={() => add.mutate()}>Add</Button></SimpleGrid></Paper>
 }
 
 function CapabilityCard({ project, kind, capability }: { project: Project; kind: Kind; capability?: Capability }) {

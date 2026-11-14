@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from storage_lab.api import app
 from storage_lab.auth import Principal, current_principal
 from storage_lab.db import Base, get_session
-from storage_lab.models import AuditEvent, Operation
+from storage_lab.models import AuditEvent, Operation, PlatformAdmin
 from storage_lab.settings import Settings
 from storage_lab.worker import run_once
 
@@ -132,6 +132,31 @@ def test_membership_roles(environment):
     active["principal"] = Principal("https://idp.example/realms/dev", "bob")
     assert client.get(f"/projects/{project_id}").status_code == 200
     assert client.put(f"/projects/{project_id}/capabilities/postgresql").status_code == 404
+
+
+def test_platform_admin_can_manage_projects_without_membership(environment):
+    client, factory, active, adapter, settings = environment
+    project_id = client.post("/projects", json={"name": "Alpha"}).json()["id"]
+    active["principal"] = Principal("https://idp.example/realms/dev", "bob")
+    assert client.get("/me").json() == {"platform_admin": False}
+    assert client.get("/projects").json() == []
+    assert client.post(f"/projects/{project_id}/members", json={"issuer": active["principal"].issuer, "subject": "carol", "role": "viewer"}).status_code == 404
+
+    with factory() as session:
+        session.add(PlatformAdmin(identity=active["principal"].identity, granted_by="bootstrap"))
+        session.commit()
+    assert client.get("/me").json() == {"platform_admin": True}
+    assert client.get("/projects").json()[0]["role"] == "admin"
+    assert client.get(f"/projects/{project_id}").json()["role"] == "admin"
+    assert len(client.get("/platform-admins").json()) == 1
+    assert client.request("DELETE", "/platform-admins", json={"issuer": active["principal"].issuer, "subject": "bob"}).status_code == 409
+    assert client.post("/platform-admins", json={"issuer": active["principal"].issuer, "subject": "carol"}).status_code == 201
+    assert client.post(f"/projects/{project_id}/members", json={"issuer": active["principal"].issuer, "subject": "carol", "role": "viewer"}).status_code == 200
+    assert client.put(f"/projects/{project_id}/capabilities/postgresql").status_code == 202
+    assert client.get("/projects/missing").status_code == 404
+    assert client.request("DELETE", "/platform-admins", json={"issuer": active["principal"].issuer, "subject": "bob"}).status_code == 204
+    assert client.get("/me").json() == {"platform_admin": False}
+    assert client.get("/projects").json() == []
 
 
 def test_only_admin_cannot_be_demoted_and_migration_access_is_postgresql_only(environment):

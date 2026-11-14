@@ -42,6 +42,7 @@ def test_oidc_signature_issuer_audience_and_expiry(monkeypatch):
         return current_principal(HTTPAuthorizationCredentials(scheme="Bearer", credentials=token))
 
     assert verify().subject == "alice"
+    assert verify().identity == "https://idp.example/realms/dev::alice"
     for changes in (
         {"iss": "https://other.example/realms/dev"},
         {"aud": "another-api"},
