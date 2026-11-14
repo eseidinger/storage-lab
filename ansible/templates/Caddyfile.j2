@@ -96,3 +96,14 @@ https://localhost:9447 {
     tls internal
     reverse_proxy opensearch-dashboards:5601
 }
+
+https://localhost:9448 {
+    tls internal
+    @project_graph path_regexp ^/graphspaces/DEFAULT/graphs/sl_[0-9a-f]{32}(?:/|$)
+    handle @project_graph {
+        reverse_proxy hugegraph:8080
+    }
+    handle {
+        respond 403
+    }
+}

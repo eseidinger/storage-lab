@@ -21,6 +21,7 @@ from .valkey_adapter import ValkeyAdapter
 from .clickhouse_adapter import ClickHouseAdapter
 from .qdrant_adapter import QdrantAdapter
 from .opensearch_adapter import OpenSearchAdapter
+from .hugegraph_adapter import HugeGraphAdapter
 
 
 def resource_name(project_id: str) -> str:
@@ -371,4 +372,6 @@ def adapter_for(kind: str, settings: Settings):
         return QdrantAdapter(settings)
     if kind == "search":
         return OpenSearchAdapter(settings)
+    if kind == "graph":
+        return HugeGraphAdapter(settings)
     raise ValueError(f"Unsupported capability: {kind}")

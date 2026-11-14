@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** PostgreSQL, RustFS, CouchDB, Valkey, ClickHouse, Qdrant, and OpenSearch have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** PostgreSQL, RustFS, CouchDB, Valkey, ClickHouse, Qdrant, OpenSearch, and HugeGraph have adapters and Compose services. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. NATS with JetStream remains planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -17,6 +17,7 @@
 | ClickHouse | Project database and role with query limits | Docker internal port 8123; Caddy HTTPS gateway on guest port 9444/host port 9001 |
 | Qdrant | Project collection and scoped JWT | Docker internal port 6333; Caddy HTTPS gateway on guest port 9445/host port 9003 |
 | OpenSearch | Project index and role; separate Dashboards tenant | Docker internal port 9200; local Caddy HTTPS gateways on guest ports 9446/9447 |
+| HugeGraph | Project graph and graph-scoped group/target | Docker internal port 8080; local Caddy HTTPS gateway on guest port 9448 |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
 
 Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services are reachable only on the internal Docker network. The metadata database is not forwarded.
@@ -94,11 +95,14 @@ The worker creates one 1536-dimensional cosine collection per project. It signs 
 
 The worker creates a project index, Dashboard tenant, and role restricted to that index and the `sl_<project-id>-*` pattern. A workload receives an internal user mapped to the project role and the built-in Dashboard login role. Revocation removes the user; deletion removes matching project indices, role, and tenant. The local development gateway exposes the REST API at `https://localhost:9005` and Dashboards at `https://localhost:9006`; Caddy blocks security administration paths. OpenSearch currently uses its demo security configuration and bundled certificates, and Dashboards uses the bundled service user. Keep these gateways loopback-only; replace the demo security setup before any public deployment. Live tenant and index isolation checks are still needed.
 
+### HugeGraph graph
+
+The worker creates a RocksDB-backed graph per project with authentication enabled, a graph-specific target, and a group granted read, write, delete, and execute permissions on that target. Each workload user belongs only to that group. Revocation deletes its association and user; capability deletion removes grants, target, group, and graph. The local Caddy gateway at `https://localhost:9007` allows only paths beneath `/graphspaces/DEFAULT/graphs/sl_<project-id>` and denies HugeGraph administration endpoints. HugeGraph uses HTTP Basic authentication behind that TLS gateway. A live two-project access check remains necessary.
+
 ## Planned capabilities
 
 | Capability | Proposed project resource | Required isolation check |
 | --- | --- | --- |
-| `graph` | HugeGraph graph | Graph-scoped roles and API access |
 | `events` | NATS account, streams, consumers | Account, subject, and JetStream isolation |
 
 Each adapter must demonstrate provisioning, project isolation, credential lifecycle, deletion, retry, and restore behavior before being exposed in the portal.

@@ -162,6 +162,19 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  hugegraph:
+    image: hugegraph/hugegraph:1.7.0
+    environment:
+      PASSWORD: ${HUGEGRAPH_ADMIN_PASSWORD}
+    volumes:
+      - hugegraph-data:/hugegraph-server
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS http://127.0.0.1:8080/versions >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
   migrate:
     <<: *app-image
     profiles: [tools]
@@ -215,6 +228,8 @@ services:
         condition: service_started
       opensearch:
         condition: service_started
+      hugegraph:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -227,6 +242,7 @@ services:
       - "9445:9445"
       - "9446:9446"
       - "9447:9447"
+      - "9448:9448"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -246,5 +262,6 @@ volumes:
   clickhouse-logs:
   qdrant-data:
   opensearch-data:
+  hugegraph-data:
   caddy-data:
   caddy-config:

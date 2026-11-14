@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     opensearch_admin_url: str = ""
     opensearch_admin_password: str = ""
     opensearch_public_url: str = ""
+    hugegraph_admin_url: str = ""
+    hugegraph_admin_password: str = ""
+    hugegraph_public_url: str = ""
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 

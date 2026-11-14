@@ -106,6 +106,7 @@
     clickhouse_admin_password: "{{ lookup('password', secret_dir ~ '/clickhouse-admin-password length=40 chars=ascii_letters,digits') }}"
     qdrant_api_key: "{{ lookup('password', secret_dir ~ '/qdrant-api-key length=64 chars=ascii_letters,digits') }}"
     opensearch_admin_password: "A!a1{{ lookup('password', secret_dir ~ '/opensearch-admin-password length=40 chars=ascii_letters,digits') }}"
+    hugegraph_admin_password: "{{ lookup('password', secret_dir ~ '/hugegraph-admin-password length=40 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default('')) }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
@@ -278,7 +279,7 @@
 
     - name: Start data services
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards, hugegraph]
         chdir: /opt/storage-lab
 
     - name: Apply metadata migrations in the app image

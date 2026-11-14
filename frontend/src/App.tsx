@@ -18,6 +18,7 @@ const kinds = {
   analytics: { label: 'Analytics', description: 'A private ClickHouse database.', icon: IconDatabase },
   vectors: { label: 'Vectors', description: 'A private Qdrant collection with 1536-dimensional vectors.', icon: IconDatabase },
   search: { label: 'Search', description: 'A private OpenSearch index and dashboard tenant.', icon: IconDatabase },
+  graph: { label: 'Graph', description: 'A private HugeGraph graph with graph-scoped access.', icon: IconDatabase },
 } as const
 type Kind = keyof typeof kinds
 const notifyError = (error: unknown) => notifications.show({ color: 'red', title: 'Request failed', message: error instanceof Error ? error.message : String(error) })
