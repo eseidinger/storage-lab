@@ -162,7 +162,7 @@ class NatsAdapter:
             if not (self.directory / "nats.conf").exists():
                 self._save(state, reload=False)
 
-    def provision(self, project_id: str) -> tuple[str, dict]:
+    def provision(self, project_id: str, stream_max_bytes: int = 1073741824) -> tuple[str, dict]:
         name = self._name(project_id)
         with self._state() as state:
             if project_id not in state["accounts"]:
@@ -174,12 +174,12 @@ class NatsAdapter:
             if response.get("error", {}).get("err_code") == 10059:
                 connection.request(f"$JS.API.STREAM.CREATE.{name}", {
                     "name": name, "subjects": [f"{name}.>"], "storage": "file",
-                    "retention": "limits", "max_bytes": 1073741824,
+                    "retention": "limits", "max_bytes": stream_max_bytes,
                 })
             elif response.get("error"):
                 raise RuntimeError(f"NATS stream lookup failed: {response['error']}")
         return name, {"url": self.settings.nats_public_url, "account": name,
-                      "stream": name, "subject_prefix": f"{name}.", "tls": True}
+                      "stream": name, "subject_prefix": f"{name}.", "stream_max_bytes": stream_max_bytes, "tls": True}
 
     def issue(self, project_id: str, username: str, secret: str, access: str = "runtime") -> None:
         if access != "runtime":

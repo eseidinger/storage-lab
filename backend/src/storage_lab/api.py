@@ -19,6 +19,7 @@ from .db import get_session
 from .models import AuditEvent, Capability, Credential, Membership, Operation, PlatformAdmin, PlatformAdminEvent, Project
 from .schemas import (
     CapabilityView,
+    CapabilityOptions,
     CredentialCreate,
     CredentialView,
     DeleteConfirmation,
@@ -340,10 +341,15 @@ def get_capability(
 def enable_capability(
     project_id: str,
     kind: str,
+    options: CapabilityOptions | None = Body(default=None),
     principal: Principal = Depends(current_principal),
     session: Session = Depends(get_session),
 ) -> OperationView:
     ensure_kind(kind)
+    configuration = options.model_dump(exclude_none=True) if options else {}
+    allowed = {"vectors": {"vector_size", "distance"}, "events": {"stream_max_bytes"}}.get(kind, set())
+    if configuration.keys() - allowed:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported configuration for this capability")
     membership(session, project_id, principal, admin=True)
     session.scalar(select(Project).where(Project.id == project_id).with_for_update())
     capability = session.scalar(
@@ -353,12 +359,14 @@ def enable_capability(
     )
     if capability is not None and capability.state == "deleting":
         raise HTTPException(status.HTTP_409_CONFLICT, "Deletion is in progress")
+    if capability is not None and configuration and configuration != (capability.configuration or {}):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Capability configuration cannot be changed after activation")
     if capability is not None and capability.state in {"pending", "ready"}:
         previous = latest_operation(session, project_id, kind, "provision")
         if previous is not None:
             return operation_view(previous)
     if capability is None:
-        capability = Capability(project_id=project_id, kind=kind, state="pending")
+        capability = Capability(project_id=project_id, kind=kind, state="pending", configuration=configuration)
         session.add(capability)
     else:
         capability.state = "pending"

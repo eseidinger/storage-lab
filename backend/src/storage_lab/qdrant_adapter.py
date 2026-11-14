@@ -27,14 +27,14 @@ class QdrantAdapter:
     def _point_id(username: str) -> str:
         return str(uuid5(NAMESPACE_URL, f"storage-lab:qdrant:{username}"))
 
-    def provision(self, project_id: str) -> tuple[str, dict]:
+    def provision(self, project_id: str, vector_size: int = 1536, distance: str = "Cosine") -> tuple[str, dict]:
         name = f"sl_{project_id}"
         if self._request("GET", f"/collections/{self.TOKEN_COLLECTION}/exists").json().get("result", {}).get("exists") is False:
             self._request("PUT", f"/collections/{self.TOKEN_COLLECTION}", json={"vectors": {"size": 1, "distance": "Dot"}})
         if self._request("GET", f"/collections/{name}/exists").json().get("result", {}).get("exists") is False:
-            self._request("PUT", f"/collections/{name}", json={"vectors": {"size": 1536, "distance": "Cosine"}})
+            self._request("PUT", f"/collections/{name}", json={"vectors": {"size": vector_size, "distance": distance}})
         return name, {"endpoint": self.settings.qdrant_public_url, "collection": name,
-                      "vector_size": 1536, "distance": "Cosine", "authentication": "api-key"}
+                      "vector_size": vector_size, "distance": distance, "authentication": "api-key"}
 
     def issue(self, project_id: str, username: str, secret: str, access: str = "runtime") -> str:
         if access != "runtime":

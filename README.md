@@ -30,12 +30,12 @@ Global `platform-admin` grants are stored in the Storage Lab metadata database a
 ## Current project workflow
 
 1. Sign in and create a project. The creator is its first administrator.
-2. Enable PostgreSQL, object storage, or documents. The API commits a capability record and operation; the worker reconciles the resource and reports status.
-3. Issue a one-time workload credential. PostgreSQL offers `runtime` access for data operations and `migration` access for schema changes. Migration sessions must run `SET ROLE <migration_role>` before creating objects so runtime grants apply to future tables. S3 credentials are restricted to the project's bucket; CouchDB users are restricted to the project's database.
+2. Enable PostgreSQL, object storage, documents, Valkey, ClickHouse, Qdrant, OpenSearch, HugeGraph, or NATS. The API commits a capability record and operation; the worker reconciles the resource and reports status.
+3. Issue a one-time workload credential. PostgreSQL offers `runtime` access for data operations and `migration` access for schema changes. Migration sessions must run `SET ROLE <migration_role>` before creating objects so runtime grants apply to future tables. The other stores also issue project-scoped workload credentials. Qdrant vector dimensions and distance and the NATS stream size are selected during activation.
 4. Use the portal to manage S3 objects and CouchDB JSON documents. Project viewers can read; administrators can change resources and credentials.
 5. Revoke credentials or delete a capability after confirming the project name. Deletion removes its data.
 
-PostgreSQL clients should use TLS with hostname verification and trust the VM's `/opt/storage-lab/certs/postgres.crt`. The development portal, S3, and CouchDB endpoints use HTTPS with Caddy's local CA; trust its root certificate as described in the VM guide. Credentials are shown once when issued; operation and audit responses exclude secret values.
+PostgreSQL clients should use TLS with hostname verification and trust the VM's `/opt/storage-lab/certs/postgres.crt`. The development portal, S3, and CouchDB endpoints use HTTPS with Caddy's local CA; trust its root certificate as described in the VM guide. Credentials can be claimed once after provisioning; operation and audit responses exclude secret values.
 
 ## Development checks
 

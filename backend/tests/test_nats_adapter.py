@@ -31,10 +31,12 @@ def test_nats_project_account_and_credential_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setattr(adapter, "_connect", lambda username, password: Connection(username, password))
     adapter.initialize()
     project = "a" * 32
-    name, endpoint = adapter.provision(project)
+    name, endpoint = adapter.provision(project, stream_max_bytes=2097152)
     assert name == f"sl_{project}"
     assert endpoint["subject_prefix"] == f"sl_{project}."
+    assert endpoint["stream_max_bytes"] == 2097152
     assert any(call[1] == f"$JS.API.STREAM.CREATE.{name}" for call in calls if call[0] == "request")
+    assert next(call for call in calls if call[0] == "request" and call[1] == f"$JS.API.STREAM.CREATE.{name}")[2]["max_bytes"] == 2097152
     adapter.issue(project, "sl_workload", "workload-secret")
     config = (tmp_path / "nats.conf").read_text()
     assert "sl_workload" in config

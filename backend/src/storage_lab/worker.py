@@ -64,7 +64,12 @@ def process(operation_id: str, factory: sessionmaker[Session], settings: Setting
         adapter = adapter_for(kind, settings)
         result = None
         if action == "provision":
-            result = adapter.provision(project_id)
+            with factory() as session:
+                capability = session.scalar(
+                    select(Capability).where(Capability.project_id == project_id, Capability.kind == kind)
+                )
+                configuration = (capability.configuration or {}) if capability is not None else {}
+            result = adapter.provision(project_id, **configuration)
             if kind in {"object-storage", "documents"}:
                 if not settings.credential_key:
                     raise RuntimeError("Credential encryption is not configured")

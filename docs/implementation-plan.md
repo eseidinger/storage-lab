@@ -1,21 +1,22 @@
 # Storage Lab implementation plan
 
-The [architecture](architecture.md) describes the current three-capability system. This plan separates work already implemented from release gates that remain open. The broader scope comes from the [original German concept](../README_DE.md).
+The [architecture](architecture.md) describes the current nine-capability system. This plan separates work already implemented from release gates that remain open. The broader scope comes from the [original German concept](../README_DE.md).
 
 ## Current implementation
 
 | Area | Status and evidence |
 | --- | --- |
 | Foundation | Python FastAPI API and worker, React/TypeScript/Mantine portal, SQLAlchemy models, Alembic migrations, pinned Python and npm dependencies |
-| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys PostgreSQL, RustFS, CouchDB, the combined API/portal image, worker, and Caddy with Docker Compose; authentication uses the external Platform Keycloak realm |
+| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys all nine data services, the combined API/portal image, worker, and Caddy with Docker Compose; authentication uses the external Platform Keycloak realm |
 | Identity and projects | OIDC token verification, local project memberships, administrator/viewer roles, project and operation authorization, audit records |
-| Provisioning | Transactional operation creation, worker leasing, idempotent PostgreSQL/S3/CouchDB reconciliation, error reporting and retry |
+| Provisioning | Transactional operation creation, worker leasing, service-specific reconciliation, error reporting and retry |
 | PostgreSQL | Project database, non-login owner, separate migration/runtime credentials, TLS, revocation, deletion, cross-project access test |
 | Object storage | Private RustFS bucket and policy, per-workload keys, revocation, deletion, API-backed object browser, cross-project access test |
 | Documents | Private CouchDB database, per-project members, separate workload users, revocation, deletion, paginated JSON document view, cross-project access test |
-| Verification | Backend tests, frontend production build, live two-project API/worker/service verification, and gateway checks against the Compose deployment |
+| Additional stores | Valkey, ClickHouse, Qdrant, OpenSearch, HugeGraph, and NATS with project-scoped resources and workload credentials; Qdrant and NATS accept activation settings |
+| Verification | Adapter unit tests and frontend production build; live cross-project tests for the six additional stores remain open |
 
-This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding. The project's six additional service adapters are not implemented.
+This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding. The six additional adapters have been implemented, but live cross-project and recovery checks are still outstanding.
 
 ## Next gate — first release quality
 
@@ -28,9 +29,9 @@ This is a working **local development slice**, not a completed production releas
 
 **Release acceptance:** Two projects complete sign-in, PostgreSQL, S3, and CouchDB provisioning, credential issuance, data access, revocation, and confirmed deletion. Each project is denied access to the other's API state, PostgreSQL database, S3 bucket, CouchDB database, and browser views. Wrong-issuer, wrong-audience, expired, and unsigned tokens fail. An interrupted job resumes without duplicate resources. Backups restore successfully, and only intended data endpoints are public.
 
-## Later capabilities
+## Remaining service validation
 
-Add one service adapter at a time: HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream. For each selected service version, verify its administrative and access-control APIs first. Then implement resource creation, per-project authorization, workload credentials, rotation, revocation, deletion, retry, restore reconciliation, and a project-safe portal view. JetStream requires a dedicated test with separate NATS accounts.
+Run two-project service tests for Valkey, ClickHouse, Qdrant, OpenSearch, HugeGraph, and NATS. Check credential issuance and revocation, cross-project denial, deletion, retry after interruption, and restore reconciliation. Validate NATS configuration reload and account isolation with a running server. Replace the OpenSearch demo security configuration before public exposure.
 
 ## Decisions still needed
 

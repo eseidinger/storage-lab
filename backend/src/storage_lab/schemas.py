@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectCreate(BaseModel):
@@ -42,7 +42,16 @@ class CapabilityView(BaseModel):
     state: str
     resource_name: str | None
     endpoint: dict | None
+    configuration: dict | None
     error: str | None
+
+
+class CapabilityOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vector_size: int | None = Field(default=None, ge=1, le=65536)
+    distance: Literal["Cosine", "Dot", "Euclid", "Manhattan"] | None = None
+    stream_max_bytes: int | None = Field(default=None, ge=1048576, le=10737418240)
 
 
 class OperationView(BaseModel):

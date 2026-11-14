@@ -17,7 +17,9 @@ def test_qdrant_jwt_is_collection_scoped_and_revocable(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda url, **kwargs: fake_request("GET", url, **kwargs))
     adapter = QdrantAdapter(Settings(qdrant_admin_url="http://qdrant:6333", qdrant_api_key="a" * 64))
     project = "a" * 32
-    adapter.provision(project)
+    adapter.provision(project, vector_size=768, distance="Dot")
+    collection_create = next(call for call in calls if call[0] == "PUT" and call[1].endswith(f"/collections/sl_{project}"))
+    assert collection_create[2]["json"]["vectors"] == {"size": 768, "distance": "Dot"}
     token = adapter.issue(project, "sl_workload", "seed")
     payload = jwt.decode(token, "a" * 64, algorithms=["HS256"])
     assert payload["access"] == [{"collection": f"sl_{project}", "access": "rw"}]

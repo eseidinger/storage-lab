@@ -57,6 +57,7 @@ class Capability(Base):
     state: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     resource_name: Mapped[str | None] = mapped_column(String(120))
     endpoint: Mapped[dict | None] = mapped_column(JSON)
+    configuration: Mapped[dict | None] = mapped_column(JSON)
     browser_credential: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
 
