@@ -76,3 +76,23 @@ https://{{ storage_lab_qdrant_host | default('localhost') }}{{ ':9445' if (stora
         reverse_proxy qdrant:6333
     }
 }
+
+https://localhost:9446 {
+    tls internal
+    @security_api path /_plugins/_security/*
+    handle @security_api {
+        respond 403
+    }
+    handle {
+        reverse_proxy https://opensearch:9200 {
+            transport http {
+                tls_insecure_skip_verify
+            }
+        }
+    }
+}
+
+https://localhost:9447 {
+    tls internal
+    reverse_proxy opensearch-dashboards:5601
+}

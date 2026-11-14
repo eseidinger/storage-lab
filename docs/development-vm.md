@@ -33,6 +33,8 @@ The development inventory uses issuer `https://identity.eseidinger.de/realms/pla
 | `localhost:6380` | Valkey with TLS and project-scoped ACLs |
 | `https://localhost:9001` | ClickHouse HTTP with project-scoped database roles |
 | `https://localhost:9003` | Qdrant with collection-scoped JWTs |
+| `https://localhost:9005` | OpenSearch REST API (development only) |
+| `https://localhost:9006` | OpenSearch Dashboards (development only) |
 | `https://localhost:9000` | S3 data gateway; administrative routes blocked |
 | `https://localhost:8080/couchdb/<database>` | Project CouchDB data gateway; global routes blocked |
 | `localhost:2222` | Guest SSH |

@@ -105,6 +105,7 @@
     valkey_admin_password: "{{ lookup('password', secret_dir ~ '/valkey-admin-password length=40 chars=ascii_letters,digits') }}"
     clickhouse_admin_password: "{{ lookup('password', secret_dir ~ '/clickhouse-admin-password length=40 chars=ascii_letters,digits') }}"
     qdrant_api_key: "{{ lookup('password', secret_dir ~ '/qdrant-api-key length=64 chars=ascii_letters,digits') }}"
+    opensearch_admin_password: "A!a1{{ lookup('password', secret_dir ~ '/opensearch-admin-password length=40 chars=ascii_letters,digits') }}"
     credential_key: "{{ lookup('file', secret_dir ~ '/credential-key') | trim }}"
     oidc_issuer: "{{ lookup('env', 'STORAGE_LAB_OIDC_ISSUER') or (storage_lab_oidc_issuer | default('')) }}"
     oidc_audience: "{{ lookup('env', 'STORAGE_LAB_OIDC_AUDIENCE') or (storage_lab_oidc_audience | default('storage-lab-api')) }}"
@@ -143,6 +144,18 @@
       no_log: true
 
   tasks:
+    - name: Allow OpenSearch memory mappings
+      ansible.builtin.copy:
+        content: "vm.max_map_count=262144\n"
+        dest: /etc/sysctl.d/99-storage-lab-opensearch.conf
+        mode: '0644'
+      register: opensearch_sysctl
+
+    - name: Apply OpenSearch memory map limit
+      ansible.builtin.command:
+        argv: [sysctl, -w, vm.max_map_count=262144]
+      when: opensearch_sysctl.changed
+
     - name: Clear previous image build context
       ansible.builtin.file:
         path: /opt/storage-lab/image
@@ -265,7 +278,7 @@
 
     - name: Start data services
       ansible.builtin.command:
-        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant]
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --wait, metadata-db, app-postgres, rustfs, couchdb, valkey, clickhouse, qdrant, opensearch, opensearch-dashboards]
         chdir: /opt/storage-lab
 
     - name: Apply metadata migrations in the app image

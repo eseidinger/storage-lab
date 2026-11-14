@@ -36,7 +36,7 @@ from .web import PortalFiles
 
 
 app = FastAPI(title="Storage Lab API", version="0.1.0")
-SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents", "key-value", "analytics", "vectors"}
+SUPPORTED_CAPABILITIES = {"postgresql", "object-storage", "documents", "key-value", "analytics", "vectors", "search"}
 
 
 def is_platform_admin(session: Session, principal: Principal) -> bool:

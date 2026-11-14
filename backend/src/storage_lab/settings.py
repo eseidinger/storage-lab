@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     qdrant_admin_url: str = ""
     qdrant_api_key: str = ""
     qdrant_public_url: str = ""
+    opensearch_admin_url: str = ""
+    opensearch_admin_password: str = ""
+    opensearch_public_url: str = ""
     worker_poll_seconds: float = 2.0
     ui_dist: str = ""
 
