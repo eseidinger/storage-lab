@@ -17,7 +17,8 @@ def main() -> None:
     secrets = [uuid4().hex + uuid4().hex for _ in range(2)]
     browser_users = [f"sl_browser_{project[:20]}" for project in (first, second)]
     browser_secrets = [uuid4().hex + uuid4().hex for _ in range(2)]
-    gateway = "http://127.0.0.1/couchdb"
+    gateway = "https://caddy/couchdb"
+    client = httpx.Client(verify=False)  # Gateway authorization is checked here; host checks validate TLS.
     try:
         for project in (first, second):
             adapter.provision(project)
@@ -31,24 +32,24 @@ def main() -> None:
         first_url = f"{gateway}/{resource_name(first)}"
         second_url = f"{gateway}/{resource_name(second)}"
         auth = (users[0], secrets[0])
-        anonymous = httpx.get(first_url)
+        anonymous = client.get(first_url)
         assert anonymous.status_code in {401, 403}, (anonymous.status_code, anonymous.text)
-        created = httpx.put(f"{first_url}/verification", auth=auth, json={"value": "first"})
+        created = client.put(f"{first_url}/verification", auth=auth, json={"value": "first"})
         assert created.status_code == 201, (created.status_code, created.text)
-        read = httpx.get(f"{first_url}/verification", auth=auth)
+        read = client.get(f"{first_url}/verification", auth=auth)
         assert read.status_code == 200 and read.json()["value"] == "first", read.text
-        listed = httpx.get(f"{first_url}/_all_docs", auth=auth)
+        listed = client.get(f"{first_url}/_all_docs", auth=auth)
         assert listed.status_code == 200 and listed.json()["rows"][0]["id"] == "verification", listed.text
-        denied = httpx.get(second_url, auth=auth)
+        denied = client.get(second_url, auth=auth)
         assert denied.status_code in {401, 403}, (denied.status_code, denied.text)
-        blocked = httpx.get(f"{gateway}/_users", auth=auth)
+        blocked = client.get(f"{gateway}/_users", auth=auth)
         assert blocked.status_code == 403, (blocked.status_code, blocked.text)
-        protected = httpx.put(
+        protected = client.put(
             f"{first_url}/_security", auth=auth,
             json={"admins": {"names": [], "roles": []}, "members": {"names": [], "roles": []}},
         )
         assert protected.status_code in {401, 403}, (protected.status_code, protected.text)
-        encoded_security = httpx.put(
+        encoded_security = client.put(
             f"{first_url}/%5Fsecurity", auth=auth,
             json={"admins": {"names": [], "roles": []}, "members": {"names": [], "roles": []}},
         )
@@ -56,7 +57,7 @@ def main() -> None:
 
         adapter.revoke(first, users[0])
         for _ in range(20):
-            revoked = httpx.get(first_url, auth=auth)
+            revoked = client.get(first_url, auth=auth)
             if revoked.status_code in {401, 403}:
                 break
             time.sleep(0.2)
@@ -73,11 +74,12 @@ def main() -> None:
     adapter.provision(first)
     try:
         adapter.issue(first, browser_users[0], browser_secrets[0])
-        restored = httpx.get(f"{gateway}/{resource_name(first)}", auth=(browser_users[0], browser_secrets[0]))
+        restored = client.get(f"{gateway}/{resource_name(first)}", auth=(browser_users[0], browser_secrets[0]))
         assert restored.status_code == 200, (restored.status_code, restored.text)
     finally:
         adapter.revoke(first, browser_users[0])
         adapter.delete(first)
+    client.close()
     print("CouchDB: project access, isolation, gateway restrictions, revocation, and reprovisioning verified")
 
 

@@ -36,10 +36,10 @@ def main() -> None:
                 raise
         pg.issue(first, users[0], secrets[0])
         pg.issue(second, users[1], secrets[1])
-        with psycopg.connect(host="localhost", port=5433, dbname=f"sl_{first}", user=users[0], password=secrets[0], sslmode="verify-full", sslrootcert="/etc/ssl/certs/storage-lab-pg.crt") as conn:
+        with psycopg.connect(host=settings.postgres_internal_host, port=settings.postgres_internal_port, dbname=f"sl_{first}", user=users[0], password=secrets[0], sslmode="require") as conn:
             assert conn.execute("SELECT current_database()").fetchone()[0] == f"sl_{first}"
         try:
-            psycopg.connect(host="localhost", port=5433, dbname=f"sl_{second}", user=users[0], password=secrets[0], sslmode="verify-full", sslrootcert="/etc/ssl/certs/storage-lab-pg.crt")
+            psycopg.connect(host=settings.postgres_internal_host, port=settings.postgres_internal_port, dbname=f"sl_{second}", user=users[0], password=secrets[0], sslmode="require")
             raise AssertionError("PostgreSQL cross-project connection succeeded")
         except psycopg.OperationalError:
             pass

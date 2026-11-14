@@ -1,6 +1,6 @@
 # Storage Lab architecture and API
 
-**Status:** PostgreSQL, RustFS, and CouchDB are implemented and run in the Ansible-managed local VM. The development inventory uses the Platform Keycloak realm; a local Keycloak realm can be selected for isolated tests. HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
+**Status:** PostgreSQL, RustFS, and CouchDB are implemented and run in the Ansible-managed local VM. The development inventory uses the Platform Keycloak realm; no local Keycloak is deployed. HugeGraph, Qdrant, Valkey, OpenSearch, ClickHouse, and NATS with JetStream remain planned. The [original German concept](../README_DE.md) defines the broader target; the [implementation plan](implementation-plan.md) tracks the remaining work.
 
 ## Components and boundaries
 
@@ -8,15 +8,14 @@
 | --- | --- | --- |
 | React portal | OIDC login, projects, memberships, capability status, credentials, S3 objects, and JSON documents | Bundled in the API image; Caddy at `https://localhost:8080` |
 | FastAPI API | JWT validation, project authorization, metadata changes, project-scoped object and document views | Caddy `/api/` to the combined app container; no service administration keys |
-| Metadata PostgreSQL | Projects, memberships, platform administrators, capabilities, operations, credentials, audit events | Guest loopback port 5432; API and worker have separate database roles |
-| Python worker | Leased operation processing and service reconciliation | Internal; holds application PostgreSQL, RustFS, and CouchDB admin credentials |
-| Application PostgreSQL | One database and non-login owner role per project | Guest port 5433; host loopback forwarding; TLS |
-| RustFS | One private bucket and policy per project | Internal port 9000; Caddy HTTPS gateway on guest port 9443/host port 9000 |
-| CouchDB | One protected JSON database per project | Internal port 5984; Caddy exposes project database paths under `/couchdb/` |
+| Metadata PostgreSQL | Projects, memberships, platform administrators, capabilities, operations, credentials, audit events | Docker internal network only; API and worker have separate database roles |
+| Python worker | Leased operation processing and service reconciliation | Dedicated container from the shared app image; holds application PostgreSQL, RustFS, and CouchDB admin credentials |
+| Application PostgreSQL | One database and non-login owner role per project | Docker container, guest port 5433, host loopback forwarding, TLS |
+| RustFS | One private bucket and policy per project | Docker internal port 9000; Caddy HTTPS gateway on guest port 9443/host port 9000 |
+| CouchDB | One protected JSON database per project | Docker internal port 5984; Caddy exposes project database paths under `/couchdb/` |
 | Platform Keycloak | OIDC realm and portal client used by the development inventory | `https://identity.eseidinger.de/realms/platform` |
-| Local Keycloak | Optional isolated development realm and sample user | Host port 8081 when enabled |
 
-Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services bind to guest loopback. The metadata database is not forwarded.
+Caddy terminates HTTPS for the portal, S3 gateway, and CouchDB data path using a persistent local CA in the development VM. The Platform Keycloak endpoint also uses HTTPS. Forwarded ports bind to the host loopback interface. A public deployment needs DNS, public certificate issuance, secret management, backup and restore procedures, monitoring, and a separate inventory. Administrative S3 routes and all global CouchDB routes are blocked by Caddy; both services are reachable only on the internal Docker network. The metadata database is not forwarded.
 
 ## Identity and project authorization
 
@@ -32,9 +31,9 @@ The current worker handles short operations and has no lease heartbeat. A servic
 
 ### PostgreSQL
 
-The worker creates a project database and a non-login owner role, revokes `PUBLIC` database access, and revokes `PUBLIC` schema access. A `runtime` credential receives `CONNECT`, schema `USAGE`, and data privileges on existing and future owner-created tables and sequences. A `migration` credential receives membership in the owner role. A migration session must execute `SET ROLE <migration_role>` before DDL so new objects are owned by the project owner and runtime default privileges apply. Neither credential receives cluster administration rights. The live verification checks runtime DML, denied runtime DDL, denied cross-project connection, and TLS hostname verification.
+The worker creates a project database and a non-login owner role, revokes `PUBLIC` database access, and revokes `PUBLIC` schema access. A `runtime` credential receives `CONNECT`, schema `USAGE`, and data privileges on existing and future owner-created tables and sequences. A `migration` credential receives membership in the owner role. A migration session must execute `SET ROLE <migration_role>` before DDL so new objects are owned by the project owner and runtime default privileges apply. Neither credential receives cluster administration rights. The live verification checks runtime DML, denied runtime DDL, denied cross-project connection, and required TLS on internal connections.
 
-Clients should connect to `localhost:5433` in the local VM with `sslmode=verify-full` and the VM's `/etc/ssl/certs/storage-lab-pg.crt` as `sslrootcert`. A different deployment must use its own DNS name and certificate. The worker's provisioning check requires TLS; the live test checks the certificate and hostname.
+Clients should connect to `localhost:5433` in the local VM with `sslmode=verify-full` and the VM's `/opt/storage-lab/certs/postgres.crt` as `sslrootcert`. A different deployment must use its own DNS name and certificate. The worker's provisioning check requires TLS; the live test checks the certificate and hostname.
 
 ### RustFS S3 and object browser
 
@@ -71,7 +70,7 @@ Asynchronous mutations return an operation ID; the portal polls until success or
 
 ## Operations and recovery
 
-Alembic manages metadata schema revisions. Ansible builds one image containing the API and portal, applies migrations, installs Podman-backed systemd units for the app and Caddy, and configures the data services. Re-running the playbook preserves the VM disk and service volumes. The [VM guide](development-vm.md) gives the verification procedure.
+Alembic manages metadata schema revisions. Ansible builds one image containing the API and portal, applies migrations in a temporary container, and starts all services with Docker Compose. Re-running the playbook preserves the VM disk and service volumes. The [VM guide](development-vm.md) gives the verification procedure.
 
 Backup and restore automation is not implemented. Before any non-development deployment, define separate backup targets and restore tests for metadata PostgreSQL, application PostgreSQL, RustFS and CouchDB data, and encryption keys. Restore must reconcile metadata with service resources before worker jobs resume. The local Caddy CA is trusted manually on development hosts. Caddy handles ACME certificates when configured for public DNS names on ports 80 and 443.
 

@@ -67,7 +67,7 @@ STORAGE_LAB_OIDC_JWKS_URL=https://identity.example/realms/my-realm/protocol/open
 ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 ```
 
-If the client ID or API audience differs, also set `STORAGE_LAB_OIDC_CLIENT_ID` and `STORAGE_LAB_OIDC_AUDIENCE`. Ansible writes the issuer, audience, and JWKS URL to the API configuration and builds the portal with the issuer and client ID. The playbook does **not** create or modify an external realm or client. Set `STORAGE_LAB_USE_LOCAL_KEYCLOAK=true` to use the optional local test realm instead. Its import template is [`ansible/templates/storage-lab-realm.json.j2`](../ansible/templates/storage-lab-realm.json.j2), and the import applies only when that realm is first created.
+If the client ID or API audience differs, also set `STORAGE_LAB_OIDC_CLIENT_ID` and `STORAGE_LAB_OIDC_AUDIENCE`. Ansible writes the issuer, audience, and JWKS URL to the API configuration and builds the portal with the issuer and client ID. The playbook does **not** create or modify an external realm or client. Storage Lab does not deploy a local Keycloak server or import a realm.
 
 ## 6. Verify the configuration
 
@@ -76,4 +76,4 @@ If the client ID or API audience differs, also set `STORAGE_LAB_OIDC_CLIENT_ID` 
 3. Use the access token to call `GET https://localhost:8080/api/me`, then `GET https://localhost:8080/api/projects`. A `401` means the token is missing or invalid. `/api/me` reports `platform_admin` from the metadata database, independently of Keycloak roles.
 4. Check both login and logout in the browser. A login failure before returning to the portal often indicates a redirect URI mismatch. A browser token exchange failure may indicate a missing web origin or PKCE setting. An API `401` often indicates a mismatched issuer, audience, or signature.
 
-The local realm template and API configuration in this repository are the reference for these values. See the [Keycloak server administration guide](https://www.keycloak.org/docs/latest/server_admin/) for the Admin Console settings.
+The external realm must be managed separately from the Storage Lab deployment. See the [Keycloak server administration guide](https://www.keycloak.org/docs/latest/server_admin/) for the Admin Console settings.

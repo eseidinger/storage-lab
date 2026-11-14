@@ -131,6 +131,7 @@
         that:
           - "'hostfwd=tcp:127.0.0.1:8080-:443' in vm_process.stdout"
           - "'hostfwd=tcp:127.0.0.1:9000-:9443' in vm_process.stdout"
+          - "'hostfwd=tcp:127.0.0.1:8081-' not in vm_process.stdout"
         fail_msg: Stop the running development VM and rerun this playbook to activate the HTTPS port forwarding rules.
       when: pidfile_stat.stat.exists and vm_process.rc == 0 and vm_name in vm_process.stdout
 

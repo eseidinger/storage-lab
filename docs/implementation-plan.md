@@ -7,15 +7,15 @@ The [architecture](architecture.md) describes the current three-capability syste
 | Area | Status and evidence |
 | --- | --- |
 | Foundation | Python FastAPI API and worker, React/TypeScript/Mantine portal, SQLAlchemy models, Alembic migrations, pinned Python and npm dependencies |
-| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys two PostgreSQL clusters, RustFS, CouchDB, combined API/portal image, worker, and Caddy; the Platform Keycloak realm is configured, with local Keycloak optional |
+| Local deployment | Ansible creates a 16-vCPU, 32-GiB Ubuntu VM and deploys PostgreSQL, RustFS, CouchDB, the combined API/portal image, worker, and Caddy with Docker Compose; authentication uses the external Platform Keycloak realm |
 | Identity and projects | OIDC token verification, local project memberships, administrator/viewer roles, project and operation authorization, audit records |
 | Provisioning | Transactional operation creation, worker leasing, idempotent PostgreSQL/S3/CouchDB reconciliation, error reporting and retry |
 | PostgreSQL | Project database, non-login owner, separate migration/runtime credentials, TLS, revocation, deletion, cross-project access test |
 | Object storage | Private RustFS bucket and policy, per-workload keys, revocation, deletion, API-backed object browser, cross-project access test |
 | Documents | Private CouchDB database, per-project members, separate workload users, revocation, deletion, paginated JSON document view, cross-project access test |
-| Verification | Backend tests, frontend production build, live two-project API/worker/service verification, and a real local Keycloak token accepted by the API |
+| Verification | Backend tests, frontend production build, live two-project API/worker/service verification, and gateway checks against the Compose deployment |
 
-This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding; the earlier API token check used the optional local realm. The project's six additional service adapters are not implemented.
+This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding; an automated live Platform realm token check is still outstanding. The project's six additional service adapters are not implemented.
 
 ## Next gate — first release quality
 

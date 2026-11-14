@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from storage_lab.api import app
 from storage_lab.auth import Principal, current_principal
+from storage_lab.settings import get_settings
 
 
 def wait(client: TestClient, operation_id: str) -> None:
@@ -28,6 +29,7 @@ def wait(client: TestClient, operation_id: str) -> None:
 
 
 def main() -> None:
+    settings = get_settings()
     alice = Principal("https://test.example/realms/dev", f"alice-{uuid4().hex}")
     bob = Principal("https://test.example/realms/dev", f"bob-{uuid4().hex}")
     active = {"principal": alice}
@@ -99,15 +101,15 @@ def main() -> None:
             assert "secret" in issued_document, issued_document
             wait(client, issued_document["operation"]["id"])
             doc_auth = (issued_document["credential"]["username"], issued_document["secret"])
-            direct = httpx.get(f"http://127.0.0.1/couchdb/sl_{first}", auth=doc_auth)
+            direct = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify=False)
             assert direct.status_code == 200, direct.text
-            denied = httpx.get(f"http://127.0.0.1/couchdb/sl_{second}", auth=doc_auth)
+            denied = httpx.get(f"https://caddy/couchdb/sl_{second}", auth=doc_auth, verify=False)
             assert denied.status_code in {401, 403}, denied.text
             revoked_document = client.delete(
                 f"/projects/{first}/capabilities/documents/credentials/{issued_document['credential']['id']}"
             ).json()
             wait(client, revoked_document["id"])
-            denied_after_revoke = httpx.get(f"http://127.0.0.1/couchdb/sl_{first}", auth=doc_auth)
+            denied_after_revoke = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify=False)
             assert denied_after_revoke.status_code in {401, 403}, denied_after_revoke.text
 
             issued = client.post(
@@ -123,16 +125,16 @@ def main() -> None:
             assert migration["credential"]["access"] == "migration", migration
             wait(client, migration["operation"]["id"])
             with psycopg.connect(
-                host="localhost", port=5433, dbname=f"sl_{first}",
+                host=settings.postgres_internal_host, port=settings.postgres_internal_port, dbname=f"sl_{first}",
                 user=migration["credential"]["username"], password=migration["secret"],
-                sslmode="verify-full", sslrootcert="/etc/ssl/certs/storage-lab-pg.crt",
+                sslmode="require",
             ) as connection:
                 connection.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(f"sl_{first}_owner")))
                 connection.execute("CREATE TABLE public.verification (id integer PRIMARY KEY)")
             with psycopg.connect(
-                host="localhost", port=5433, dbname=f"sl_{first}",
+                host=settings.postgres_internal_host, port=settings.postgres_internal_port, dbname=f"sl_{first}",
                 user=issued["credential"]["username"], password=issued["secret"],
-                sslmode="verify-full", sslrootcert="/etc/ssl/certs/storage-lab-pg.crt",
+                sslmode="require",
             ) as connection:
                 connection.execute("INSERT INTO public.verification (id) VALUES (1)")
                 assert connection.execute("SELECT id FROM public.verification").fetchone() == (1,)
@@ -143,9 +145,9 @@ def main() -> None:
                     connection.rollback()
             try:
                 psycopg.connect(
-                    host="localhost", port=5433, dbname=f"sl_{second}",
+                    host=settings.postgres_internal_host, port=settings.postgres_internal_port, dbname=f"sl_{second}",
                     user=issued["credential"]["username"], password=issued["secret"],
-                    sslmode="verify-full", sslrootcert="/etc/ssl/certs/storage-lab-pg.crt",
+                    sslmode="require",
                 )
                 raise AssertionError("Cross-project PostgreSQL access succeeded")
             except psycopg.OperationalError:

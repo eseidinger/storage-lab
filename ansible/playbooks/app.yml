@@ -75,6 +75,18 @@
         state: absent
         purge: true
 
+    - name: Remove previous host application files and local Keycloak import
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/storage-lab/backend
+        - /opt/storage-lab/venv
+        - /opt/storage-lab/keycloak-import
+        - /etc/storage-lab
+        - /etc/ssl/private/storage-lab-pg.key
+        - /etc/ssl/certs/storage-lab-pg.crt
+
 - import_playbook: deploy.yml
 
 - name: Deploy Storage Lab through Docker Compose
