@@ -114,7 +114,7 @@ services:
       STORAGE_LAB_UI_DIST: ""
     command: [python, -m, storage_lab.worker]
     volumes:
-      - caddy-data:/caddy-data:ro
+      - ./caddy-ca:/caddy-ca:ro
     depends_on:
       metadata-db:
         condition: service_healthy

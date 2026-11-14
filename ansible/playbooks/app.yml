@@ -153,6 +153,7 @@
       loop:
         - /opt/storage-lab/image
         - /opt/storage-lab/certs
+        - /opt/storage-lab/caddy-ca
 
     - name: Copy Compose deployment files
       ansible.builtin.copy:
@@ -301,6 +302,20 @@
       ansible.builtin.command:
         argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, up, -d, --no-build, --wait, app, worker, caddy]
         chdir: /opt/storage-lab
+
+    - name: Copy Caddy public CA certificate for container checks
+      ansible.builtin.command:
+        argv: [docker, compose, -f, /opt/storage-lab/compose.yaml, cp, caddy:/data/caddy/pki/authorities/local/root.crt, /opt/storage-lab/caddy-ca/root.crt]
+        chdir: /opt/storage-lab
+      register: caddy_ca_copy
+      until: caddy_ca_copy.rc == 0
+      retries: 30
+      delay: 2
+
+    - name: Make Caddy public CA certificate readable
+      ansible.builtin.file:
+        path: /opt/storage-lab/caddy-ca/root.crt
+        mode: '0644'
 
     - name: Verify HTTPS portal and API routes
       ansible.builtin.uri:

@@ -101,15 +101,15 @@ def main() -> None:
             assert "secret" in issued_document, issued_document
             wait(client, issued_document["operation"]["id"])
             doc_auth = (issued_document["credential"]["username"], issued_document["secret"])
-            direct = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify="/caddy-data/caddy/pki/authorities/local/root.crt")
+            direct = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify="/caddy-ca/root.crt")
             assert direct.status_code == 200, direct.text
-            denied = httpx.get(f"https://caddy/couchdb/sl_{second}", auth=doc_auth, verify="/caddy-data/caddy/pki/authorities/local/root.crt")
+            denied = httpx.get(f"https://caddy/couchdb/sl_{second}", auth=doc_auth, verify="/caddy-ca/root.crt")
             assert denied.status_code in {401, 403}, denied.text
             revoked_document = client.delete(
                 f"/projects/{first}/capabilities/documents/credentials/{issued_document['credential']['id']}"
             ).json()
             wait(client, revoked_document["id"])
-            denied_after_revoke = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify="/caddy-data/caddy/pki/authorities/local/root.crt")
+            denied_after_revoke = httpx.get(f"https://caddy/couchdb/sl_{first}", auth=doc_auth, verify="/caddy-ca/root.crt")
             assert denied_after_revoke.status_code in {401, 403}, denied_after_revoke.text
 
             issued = client.post(
