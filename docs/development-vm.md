@@ -83,7 +83,7 @@ sudo docker compose -f /opt/storage-lab/compose.yaml exec worker python /app/scr
 sudo docker compose -f /opt/storage-lab/compose.yaml exec worker python /app/scripts/verify_end_to_end.py
 ```
 
-The scripts exercise project isolation, credential revocation, API/worker operations, and gateway filtering. They use internal Docker DNS and require TLS for project PostgreSQL connections. Check the host-facing certificates and HTTPS routes separately:
+The scripts exercise project isolation, credential revocation, API/worker operations, and gateway filtering. They use internal Docker DNS, require TLS for project PostgreSQL connections, and trust the Caddy internal CA for the gateway checks. Check the host-facing certificates and HTTPS routes separately:
 
 ```sh
 curl --cacert .local/dev-vm/caddy-root.crt -i https://localhost:8080/api/health

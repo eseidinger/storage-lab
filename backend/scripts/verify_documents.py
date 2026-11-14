@@ -18,7 +18,7 @@ def main() -> None:
     browser_users = [f"sl_browser_{project[:20]}" for project in (first, second)]
     browser_secrets = [uuid4().hex + uuid4().hex for _ in range(2)]
     gateway = "https://caddy/couchdb"
-    client = httpx.Client(verify=False)  # Gateway authorization is checked here; host checks validate TLS.
+    client = httpx.Client(verify="/caddy-data/caddy/pki/authorities/local/root.crt")
     try:
         for project in (first, second):
             adapter.provision(project)

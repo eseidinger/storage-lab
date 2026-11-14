@@ -1,8 +1,4 @@
-https://{{ storage_lab_portal_host | default('localhost') }}{{ ':443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else '' }} {
-{% if (storage_lab_portal_host | default('localhost')) == 'localhost' %}
-    tls internal
-{% endif %}
-
+(portal_routes) {
     @couch_all_docs path_regexp ^/couchdb/sl_[0-9a-f]{32}/_all_docs(?:/|$)
     @couch_private path_regexp ^/couchdb/sl_[0-9a-f]{32}/_
     @couch_project path_regexp ^/couchdb/sl_[0-9a-f]{32}(?:/|$)
@@ -31,6 +27,18 @@ https://{{ storage_lab_portal_host | default('localhost') }}{{ ':443' if (storag
             reverse_proxy app:8000
         }
     }
+}
+
+https://{{ storage_lab_portal_host | default('localhost') }}{{ ':443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else '' }} {
+{% if (storage_lab_portal_host | default('localhost')) == 'localhost' %}
+    tls internal
+{% endif %}
+    import portal_routes
+}
+
+https://caddy {
+    tls internal
+    import portal_routes
 }
 
 https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else '' }} {

@@ -117,6 +117,7 @@
       ansible.builtin.command:
         argv:
           - ps
+          - -ww
           - -p
           - "{{ lookup('file', vm_pidfile) | trim }}"
           - -o

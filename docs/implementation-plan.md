@@ -15,7 +15,7 @@ The [architecture](architecture.md) describes the current three-capability syste
 | Documents | Private CouchDB database, per-project members, separate workload users, revocation, deletion, paginated JSON document view, cross-project access test |
 | Verification | Backend tests, frontend production build, live two-project API/worker/service verification, and gateway checks against the Compose deployment |
 
-This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding; an automated live Platform realm token check is still outstanding. The project's six additional service adapters are not implemented.
+This is a working **local development slice**, not a completed production release. Browser login is configured with the Platform Keycloak realm. A full automated browser journey and verification of the Platform realm's issued access-token audience are still outstanding. The project's six additional service adapters are not implemented.
 
 ## Next gate — first release quality
 

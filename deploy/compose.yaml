@@ -113,6 +113,8 @@ services:
     environment:
       STORAGE_LAB_UI_DIST: ""
     command: [python, -m, storage_lab.worker]
+    volumes:
+      - caddy-data:/caddy-data:ro
     depends_on:
       metadata-db:
         condition: service_healthy
@@ -127,6 +129,7 @@ services:
   caddy:
     image: caddy:2.10.2
     ports:
+      - "80:80"
       - "443:443"
       - "9443:9443"
     volumes:
