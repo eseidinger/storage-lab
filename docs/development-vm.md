@@ -20,7 +20,7 @@ ansible-playbook ansible/playbooks/dev-vm.yml
 ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 ```
 
-The first playbook creates and starts the VM. The second removes the former Podman containers and systemd services, removes host PostgreSQL, installs Docker and Compose, builds the shared API/worker image, initializes the two PostgreSQL containers, applies Alembic migrations, and starts the stack. It validates the Caddy configuration and checks the public routes. **Existing host PostgreSQL data and Podman volumes are not migrated into Docker.** Compose volumes are used for new data. Re-running `app.yml` preserves the Docker volumes.
+The first playbook creates and starts the VM. The second removes the former Podman containers and systemd services, removes host PostgreSQL, installs Docker and Compose, builds the shared API/worker image, initializes two PostgreSQL 18.7 containers, applies Alembic migrations, and starts the stack. It validates the Caddy configuration and checks the public routes. **Existing host PostgreSQL data, Podman volumes, and PostgreSQL 16 Compose volumes are not migrated.** PostgreSQL 18 uses new named volumes mounted at `/var/lib/postgresql`, matching the official image's data layout. Re-running `app.yml` preserves these PostgreSQL 18 volumes.
 
 If the VM was started with the old forwarding rules, stop it using the PID in `.local/dev-vm/qemu.pid`, run `dev-vm.yml` again, then run `app.yml`. QEMU only reads port forwarding at startup. The current rules forward host 8080 to guest 443, host 9000 to guest 9443, and host 5433 to guest 5433. There is no Keycloak port forward.
 

@@ -11,14 +11,14 @@ x-app-image: &app-image
 
 services:
   metadata-db:
-    image: postgres:16-bookworm
+    image: postgres:18.7-bookworm
     environment:
       POSTGRES_DB: storage_lab
       POSTGRES_PASSWORD: ${META_POSTGRES_PASSWORD}
       API_DB_PASSWORD: ${API_DB_PASSWORD}
       WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD}
     volumes:
-      - metadata-db-data:/var/lib/postgresql/data
+      - metadata-db-18-data:/var/lib/postgresql
       - ./metadata-init.sh:/docker-entrypoint-initdb.d/10-storage-lab.sh:ro
     healthcheck:
       test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U postgres -d storage_lab"]
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
   app-postgres:
-    image: postgres:16-bookworm
+    image: postgres:18.7-bookworm
     environment:
       POSTGRES_PASSWORD: ${APP_PG_PASSWORD}
     command:
@@ -46,7 +46,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - app-postgres-data:/var/lib/postgresql/data
+      - app-postgres-18-data:/var/lib/postgresql
       - ./certs/postgres.crt:/certs/postgres.crt:ro
       - ./certs/postgres.key:/certs/postgres.key:ro
       - ./app-pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
@@ -142,8 +142,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  metadata-db-data:
-  app-postgres-data:
+  metadata-db-18-data:
+  app-postgres-18-data:
   rustfs-data:
   couchdb-data:
   caddy-data:
