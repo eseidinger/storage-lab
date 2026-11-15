@@ -1,5 +1,5 @@
 ---
-- name: Prepare the Storage Lab development guest for Docker Compose
+- name: Prepare the Storage Lab host for Docker Compose
   hosts: storage_lab
   become: true
   tasks:

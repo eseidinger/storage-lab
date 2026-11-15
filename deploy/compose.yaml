@@ -265,8 +265,8 @@ services:
       - "9443:9443"
       - "9444:9444"
       - "9445:9445"
-      - "9446:9446"
-      - "9447:9447"
+      - "${STORAGE_LAB_DEV_GATEWAYS_BIND:-0.0.0.0}:9446:9446"
+      - "${STORAGE_LAB_DEV_GATEWAYS_BIND:-0.0.0.0}:9447:9447"
       - "9448:9448"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

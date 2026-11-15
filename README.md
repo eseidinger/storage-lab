@@ -2,7 +2,7 @@
 
 Storage Lab is a single-host platform for project-scoped data services. Members sign in through OIDC, create projects, enable services, and manage workload credentials in a React portal. A Python API stores desired state and authorizes requests; a separate worker provisions resources.
 
-**Implemented now:** project membership and roles, asynchronous operations, PostgreSQL databases, private RustFS S3 buckets, CouchDB document databases, workload credential issuance and revocation, S3 and document views, and an Ansible-deployed Docker Compose stack in a local development VM. The other six services in the [original concept](README_DE.md) remain planned. The current deployment is a local development environment with loopback host forwarding and locally issued TLS certificates; it is not a production deployment.
+**Implemented now:** project membership and roles, asynchronous operations, PostgreSQL databases, private RustFS S3 buckets, CouchDB document databases, Valkey, ClickHouse, Qdrant, OpenSearch, HugeGraph, NATS, workload credential issuance and revocation, S3 and document views, and an Ansible-deployed Docker Compose stack in a local development VM. A server inventory for `storage-lab.eseidinger.de` is available; network access is managed by an external firewall, while backups, monitoring, and certificate renewal remain to be configured for production use.
 
 ## Technology
 
@@ -52,5 +52,6 @@ The live verification scripts under `backend/scripts/` exercise service isolatio
 - [Implementation status and remaining plan](docs/implementation-plan.md)
 - [Technology decisions](docs/technology-decisions.md)
 - [Local development VM](docs/development-vm.md)
+- [Server deployment](docs/server-deployment.md)
 - [Keycloak realm configuration](docs/keycloak-realm.md)
 - [Original German concept](README_DE.md)

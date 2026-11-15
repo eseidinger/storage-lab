@@ -6,7 +6,7 @@
   become: true
   vars:
     source_root: "{{ playbook_dir }}/../.."
-    secret_dir: "{{ source_root }}/.local/deploy"
+    secret_dir: "{{ source_root }}/.local/{{ storage_lab_secret_namespace | default('deploy') }}"
     metadata_pg_password: "{{ lookup('password', secret_dir ~ '/metadata-pg-password length=32 chars=ascii_letters,digits') }}"
     api_db_password: "{{ lookup('password', secret_dir ~ '/api-db-password length=32 chars=ascii_letters,digits') }}"
     worker_db_password: "{{ lookup('password', secret_dir ~ '/worker-db-password length=32 chars=ascii_letters,digits') }}"
@@ -26,11 +26,14 @@
     oidc_jwks_url: "{{ lookup('env', 'STORAGE_LAB_OIDC_JWKS_URL') or (storage_lab_oidc_jwks_url | default('')) }}"
     oidc_client_id: "{{ lookup('env', 'STORAGE_LAB_OIDC_CLIENT_ID') or (storage_lab_oidc_client_id | default('storage-lab-portal')) }}"
     portal_public_url: "{{ 'https://localhost:8080' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
-    s3_public_url: "{{ 'https://localhost:9000' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
-    clickhouse_public_url: "{{ 'https://localhost:9001' if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_clickhouse_host }}"
-    qdrant_public_url: "{{ 'https://localhost:9003' if (storage_lab_qdrant_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_qdrant_host }}"
+    s3_public_url: "https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9000' if (storage_lab_s3_host | default('localhost')) == 'localhost' else (':9443' if (storage_lab_s3_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else '') }}"
+    clickhouse_public_url: "https://{{ storage_lab_clickhouse_host | default('localhost') }}{{ ':9001' if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' else (':9444' if (storage_lab_clickhouse_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else '') }}"
+    qdrant_public_url: "https://{{ storage_lab_qdrant_host | default('localhost') }}{{ ':9003' if (storage_lab_qdrant_host | default('localhost')) == 'localhost' else (':9445' if (storage_lab_qdrant_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else '') }}"
+    opensearch_public_url: "https://{{ storage_lab_opensearch_host | default('localhost') }}:{{ 9005 if (storage_lab_opensearch_host | default('localhost')) == 'localhost' else 9446 }}"
+    hugegraph_public_url: "https://{{ storage_lab_hugegraph_host | default('localhost') }}:{{ 9007 if (storage_lab_hugegraph_host | default('localhost')) == 'localhost' else 9448 }}/graphspaces/DEFAULT/graphs"
+    nats_public_url: "tls://{{ storage_lab_nats_host | default('localhost') }}:4222"
     portal_gateway_url: "{{ 'https://localhost:443' if (storage_lab_portal_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_portal_host }}"
-    s3_gateway_url: "{{ 'https://localhost:9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else 'https://' ~ storage_lab_s3_host }}"
+    s3_gateway_url: "https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_lab_s3_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else '' }}"
   pre_tasks:
     - name: Require an external OIDC realm
       ansible.builtin.assert:
@@ -49,13 +52,20 @@
 
     - name: Create stable credential encryption key
       ansible.builtin.shell: >-
-        python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'
+        umask 077; python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'
         > {{ secret_dir }}/credential-key
       args:
         creates: "{{ secret_dir }}/credential-key"
       delegate_to: localhost
       become: false
       no_log: true
+
+    - name: Protect credential encryption key on the controller
+      ansible.builtin.file:
+        path: "{{ secret_dir }}/credential-key"
+        mode: '0600'
+      delegate_to: localhost
+      become: false
 
   tasks:
     - name: Allow OpenSearch memory mappings
@@ -147,9 +157,9 @@
           - -out
           - /opt/storage-lab/certs/postgres.crt
           - -subj
-          - /CN=localhost
+          - "/CN={{ storage_lab_postgres_host | default('localhost') }}"
           - -addext
-          - subjectAltName=DNS:localhost,IP:127.0.0.1
+          - "subjectAltName=DNS:localhost,IP:127.0.0.1,DNS:{{ storage_lab_postgres_host | default('localhost') }},DNS:{{ storage_lab_valkey_host | default('localhost') }},DNS:{{ storage_lab_nats_host | default('localhost') }}"
         creates: /opt/storage-lab/certs/postgres.key
 
     - name: Protect application PostgreSQL TLS key

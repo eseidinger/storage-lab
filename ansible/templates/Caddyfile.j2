@@ -41,7 +41,7 @@ https://caddy {
     import portal_routes
 }
 
-https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_lab_s3_host | default('localhost')) == 'localhost' else '' }} {
+https://{{ storage_lab_s3_host | default('localhost') }}:{{ 9443 if (storage_lab_s3_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else 443 }} {
 {% if (storage_lab_s3_host | default('localhost')) == 'localhost' %}
     tls internal
 {% endif %}
@@ -57,14 +57,14 @@ https://{{ storage_lab_s3_host | default('localhost') }}{{ ':9443' if (storage_l
     }
 }
 
-https://{{ storage_lab_clickhouse_host | default('localhost') }}{{ ':9444' if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' else '' }} {
+https://{{ storage_lab_clickhouse_host | default('localhost') }}:{{ 9444 if (storage_lab_clickhouse_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else 443 }} {
 {% if (storage_lab_clickhouse_host | default('localhost')) == 'localhost' %}
     tls internal
 {% endif %}
     reverse_proxy clickhouse:8123
 }
 
-https://{{ storage_lab_qdrant_host | default('localhost') }}{{ ':9445' if (storage_lab_qdrant_host | default('localhost')) == 'localhost' else '' }} {
+https://{{ storage_lab_qdrant_host | default('localhost') }}:{{ 9445 if (storage_lab_qdrant_host | default('localhost')) == (storage_lab_portal_host | default('localhost')) else 443 }} {
 {% if (storage_lab_qdrant_host | default('localhost')) == 'localhost' %}
     tls internal
 {% endif %}
@@ -77,8 +77,10 @@ https://{{ storage_lab_qdrant_host | default('localhost') }}{{ ':9445' if (stora
     }
 }
 
-https://localhost:9446 {
+https://{{ storage_lab_opensearch_host | default('localhost') }}:9446 {
+{% if (storage_lab_opensearch_host | default('localhost')) == 'localhost' %}
     tls internal
+{% endif %}
     @security_api path /_plugins/_security/*
     handle @security_api {
         respond 403
@@ -92,13 +94,17 @@ https://localhost:9446 {
     }
 }
 
-https://localhost:9447 {
+https://{{ storage_lab_opensearch_host | default('localhost') }}:9447 {
+{% if (storage_lab_opensearch_host | default('localhost')) == 'localhost' %}
     tls internal
+{% endif %}
     reverse_proxy opensearch-dashboards:5601
 }
 
-https://localhost:9448 {
+https://{{ storage_lab_hugegraph_host | default('localhost') }}:9448 {
+{% if (storage_lab_hugegraph_host | default('localhost')) == 'localhost' %}
     tls internal
+{% endif %}
     @project_graph path_regexp ^/graphspaces/DEFAULT/graphs/sl_[0-9a-f]{32}(?:/|$)
     handle @project_graph {
         reverse_proxy hugegraph:8080
