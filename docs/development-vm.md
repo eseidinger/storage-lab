@@ -6,7 +6,7 @@ Ansible provisions an Ubuntu 24.04 VM with **16 vCPUs**, **32 GiB RAM**, and an 
 
 - QEMU (`qemu-system-x86_64` and `qemu-img`), `cloud-localds`, OpenSSH, and Ansible Core. Docker Engine and Compose are installed inside the guest.
 - At least 32 GiB of available memory and enough free storage for the VM disk and container volumes.
-- Access to the Ubuntu 24.04 cloud image, Ubuntu package repositories, and container registries.
+- Access to the Ubuntu 24.04 cloud image, Ubuntu package repositories, Docker's package repository at `download.docker.com`, and container registries.
 - KVM for practical performance. Without `/dev/kvm`, QEMU uses software emulation.
 
 VM state, the SSH key, and generated deployment passwords are under ignored `.local/` directories. Forwarded host ports bind to `127.0.0.1` only.
@@ -20,7 +20,7 @@ ansible-playbook ansible/playbooks/dev-vm.yml
 ansible-playbook -i ansible/inventory/dev.yml ansible/playbooks/app.yml
 ```
 
-The first playbook creates and starts the VM. The second installs Docker and Compose, builds the shared API/worker image, initializes two PostgreSQL 18.7 containers, applies Alembic migrations, and starts the stack. It validates the Caddy configuration and checks the public routes. PostgreSQL 18 uses named volumes mounted at `/var/lib/postgresql`, matching the official image's data layout. Re-running `app.yml` preserves these volumes.
+The first playbook creates and starts the VM. The second installs Docker Engine and Compose from Docker's official APT repository, builds the shared API/worker image, initializes two PostgreSQL 18.7 containers, applies Alembic migrations, and starts the stack. It validates the Caddy configuration and checks the public routes. PostgreSQL 18 uses named volumes mounted at `/var/lib/postgresql`, matching the official image's data layout. Re-running `app.yml` preserves these volumes.
 
 To recreate the VM, shut it down, delete `.local/dev-vm/disk.qcow2`, `.local/dev-vm/seed.iso`, `.local/dev-vm/qemu.pid`, and `.local/dev-vm/known_hosts`, then run both playbooks. This deletes every service volume in the guest. QEMU only reads port forwarding at startup. The current rules forward host 8080 to guest 443, host 9000 to guest 9443, host 9001 to guest 9444, host 9003 to guest 9445, host 5433 to guest 5433, host 6380 to guest 6380, and host 4222 to guest 4222. There is no Keycloak port forward.
 
